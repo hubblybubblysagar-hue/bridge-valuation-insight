@@ -9,38 +9,302 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignupRouteImport } from './routes/signup'
+import { Route as SellerRouteImport } from './routes/seller'
+import { Route as SampleTeaserRouteImport } from './routes/sample-teaser'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as BuyerSignupRouteImport } from './routes/buyer-signup'
+import { Route as BuyerRouteImport } from './routes/buyer'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SellerIndexRouteImport } from './routes/seller.index'
+import { Route as BuyerIndexRouteImport } from './routes/buyer.index'
+import { Route as SellerValuationRouteImport } from './routes/seller.valuation'
+import { Route as SellerTeaserRouteImport } from './routes/seller.teaser'
+import { Route as SellerRiskRouteImport } from './routes/seller.risk'
+import { Route as SellerFinancialReviewRouteImport } from './routes/seller.financial-review'
+import { Route as SellerConnectRouteImport } from './routes/seller.connect'
+import { Route as SellerBuyerInterestRouteImport } from './routes/seller.buyer-interest'
+import { Route as SellerBusinessRouteImport } from './routes/seller.business'
+import { Route as SellerAccountRouteImport } from './routes/seller.account'
+import { Route as BuyerNdasRouteImport } from './routes/buyer.ndas'
+import { Route as BuyerAccountRouteImport } from './routes/buyer.account'
 
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SellerRoute = SellerRouteImport.update({
+  id: '/seller',
+  path: '/seller',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SampleTeaserRoute = SampleTeaserRouteImport.update({
+  id: '/sample-teaser',
+  path: '/sample-teaser',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuyerSignupRoute = BuyerSignupRouteImport.update({
+  id: '/buyer-signup',
+  path: '/buyer-signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuyerRoute = BuyerRouteImport.update({
+  id: '/buyer',
+  path: '/buyer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SellerIndexRoute = SellerIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SellerRoute,
+} as any)
+const BuyerIndexRoute = BuyerIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BuyerRoute,
+} as any)
+const SellerValuationRoute = SellerValuationRouteImport.update({
+  id: '/valuation',
+  path: '/valuation',
+  getParentRoute: () => SellerRoute,
+} as any)
+const SellerTeaserRoute = SellerTeaserRouteImport.update({
+  id: '/teaser',
+  path: '/teaser',
+  getParentRoute: () => SellerRoute,
+} as any)
+const SellerRiskRoute = SellerRiskRouteImport.update({
+  id: '/risk',
+  path: '/risk',
+  getParentRoute: () => SellerRoute,
+} as any)
+const SellerFinancialReviewRoute = SellerFinancialReviewRouteImport.update({
+  id: '/financial-review',
+  path: '/financial-review',
+  getParentRoute: () => SellerRoute,
+} as any)
+const SellerConnectRoute = SellerConnectRouteImport.update({
+  id: '/connect',
+  path: '/connect',
+  getParentRoute: () => SellerRoute,
+} as any)
+const SellerBuyerInterestRoute = SellerBuyerInterestRouteImport.update({
+  id: '/buyer-interest',
+  path: '/buyer-interest',
+  getParentRoute: () => SellerRoute,
+} as any)
+const SellerBusinessRoute = SellerBusinessRouteImport.update({
+  id: '/business',
+  path: '/business',
+  getParentRoute: () => SellerRoute,
+} as any)
+const SellerAccountRoute = SellerAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => SellerRoute,
+} as any)
+const BuyerNdasRoute = BuyerNdasRouteImport.update({
+  id: '/ndas',
+  path: '/ndas',
+  getParentRoute: () => BuyerRoute,
+} as any)
+const BuyerAccountRoute = BuyerAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => BuyerRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/buyer': typeof BuyerRouteWithChildren
+  '/buyer-signup': typeof BuyerSignupRoute
+  '/login': typeof LoginRoute
+  '/sample-teaser': typeof SampleTeaserRoute
+  '/seller': typeof SellerRouteWithChildren
+  '/signup': typeof SignupRoute
+  '/buyer/account': typeof BuyerAccountRoute
+  '/buyer/ndas': typeof BuyerNdasRoute
+  '/seller/account': typeof SellerAccountRoute
+  '/seller/business': typeof SellerBusinessRoute
+  '/seller/buyer-interest': typeof SellerBuyerInterestRoute
+  '/seller/connect': typeof SellerConnectRoute
+  '/seller/financial-review': typeof SellerFinancialReviewRoute
+  '/seller/risk': typeof SellerRiskRoute
+  '/seller/teaser': typeof SellerTeaserRoute
+  '/seller/valuation': typeof SellerValuationRoute
+  '/buyer/': typeof BuyerIndexRoute
+  '/seller/': typeof SellerIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/buyer-signup': typeof BuyerSignupRoute
+  '/login': typeof LoginRoute
+  '/sample-teaser': typeof SampleTeaserRoute
+  '/signup': typeof SignupRoute
+  '/buyer/account': typeof BuyerAccountRoute
+  '/buyer/ndas': typeof BuyerNdasRoute
+  '/seller/account': typeof SellerAccountRoute
+  '/seller/business': typeof SellerBusinessRoute
+  '/seller/buyer-interest': typeof SellerBuyerInterestRoute
+  '/seller/connect': typeof SellerConnectRoute
+  '/seller/financial-review': typeof SellerFinancialReviewRoute
+  '/seller/risk': typeof SellerRiskRoute
+  '/seller/teaser': typeof SellerTeaserRoute
+  '/seller/valuation': typeof SellerValuationRoute
+  '/buyer': typeof BuyerIndexRoute
+  '/seller': typeof SellerIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/buyer': typeof BuyerRouteWithChildren
+  '/buyer-signup': typeof BuyerSignupRoute
+  '/login': typeof LoginRoute
+  '/sample-teaser': typeof SampleTeaserRoute
+  '/seller': typeof SellerRouteWithChildren
+  '/signup': typeof SignupRoute
+  '/buyer/account': typeof BuyerAccountRoute
+  '/buyer/ndas': typeof BuyerNdasRoute
+  '/seller/account': typeof SellerAccountRoute
+  '/seller/business': typeof SellerBusinessRoute
+  '/seller/buyer-interest': typeof SellerBuyerInterestRoute
+  '/seller/connect': typeof SellerConnectRoute
+  '/seller/financial-review': typeof SellerFinancialReviewRoute
+  '/seller/risk': typeof SellerRiskRoute
+  '/seller/teaser': typeof SellerTeaserRoute
+  '/seller/valuation': typeof SellerValuationRoute
+  '/buyer/': typeof BuyerIndexRoute
+  '/seller/': typeof SellerIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/buyer'
+    | '/buyer-signup'
+    | '/login'
+    | '/sample-teaser'
+    | '/seller'
+    | '/signup'
+    | '/buyer/account'
+    | '/buyer/ndas'
+    | '/seller/account'
+    | '/seller/business'
+    | '/seller/buyer-interest'
+    | '/seller/connect'
+    | '/seller/financial-review'
+    | '/seller/risk'
+    | '/seller/teaser'
+    | '/seller/valuation'
+    | '/buyer/'
+    | '/seller/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/buyer-signup'
+    | '/login'
+    | '/sample-teaser'
+    | '/signup'
+    | '/buyer/account'
+    | '/buyer/ndas'
+    | '/seller/account'
+    | '/seller/business'
+    | '/seller/buyer-interest'
+    | '/seller/connect'
+    | '/seller/financial-review'
+    | '/seller/risk'
+    | '/seller/teaser'
+    | '/seller/valuation'
+    | '/buyer'
+    | '/seller'
+  id:
+    | '__root__'
+    | '/'
+    | '/buyer'
+    | '/buyer-signup'
+    | '/login'
+    | '/sample-teaser'
+    | '/seller'
+    | '/signup'
+    | '/buyer/account'
+    | '/buyer/ndas'
+    | '/seller/account'
+    | '/seller/business'
+    | '/seller/buyer-interest'
+    | '/seller/connect'
+    | '/seller/financial-review'
+    | '/seller/risk'
+    | '/seller/teaser'
+    | '/seller/valuation'
+    | '/buyer/'
+    | '/seller/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BuyerRoute: typeof BuyerRouteWithChildren
+  BuyerSignupRoute: typeof BuyerSignupRoute
+  LoginRoute: typeof LoginRoute
+  SampleTeaserRoute: typeof SampleTeaserRoute
+  SellerRoute: typeof SellerRouteWithChildren
+  SignupRoute: typeof SignupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/seller': {
+      id: '/seller'
+      path: '/seller'
+      fullPath: '/seller'
+      preLoaderRoute: typeof SellerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sample-teaser': {
+      id: '/sample-teaser'
+      path: '/sample-teaser'
+      fullPath: '/sample-teaser'
+      preLoaderRoute: typeof SampleTeaserRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/buyer-signup': {
+      id: '/buyer-signup'
+      path: '/buyer-signup'
+      fullPath: '/buyer-signup'
+      preLoaderRoute: typeof BuyerSignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/buyer': {
+      id: '/buyer'
+      path: '/buyer'
+      fullPath: '/buyer'
+      preLoaderRoute: typeof BuyerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +312,143 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/seller/': {
+      id: '/seller/'
+      path: '/'
+      fullPath: '/seller/'
+      preLoaderRoute: typeof SellerIndexRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/buyer/': {
+      id: '/buyer/'
+      path: '/'
+      fullPath: '/buyer/'
+      preLoaderRoute: typeof BuyerIndexRouteImport
+      parentRoute: typeof BuyerRoute
+    }
+    '/seller/valuation': {
+      id: '/seller/valuation'
+      path: '/valuation'
+      fullPath: '/seller/valuation'
+      preLoaderRoute: typeof SellerValuationRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/seller/teaser': {
+      id: '/seller/teaser'
+      path: '/teaser'
+      fullPath: '/seller/teaser'
+      preLoaderRoute: typeof SellerTeaserRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/seller/risk': {
+      id: '/seller/risk'
+      path: '/risk'
+      fullPath: '/seller/risk'
+      preLoaderRoute: typeof SellerRiskRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/seller/financial-review': {
+      id: '/seller/financial-review'
+      path: '/financial-review'
+      fullPath: '/seller/financial-review'
+      preLoaderRoute: typeof SellerFinancialReviewRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/seller/connect': {
+      id: '/seller/connect'
+      path: '/connect'
+      fullPath: '/seller/connect'
+      preLoaderRoute: typeof SellerConnectRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/seller/buyer-interest': {
+      id: '/seller/buyer-interest'
+      path: '/buyer-interest'
+      fullPath: '/seller/buyer-interest'
+      preLoaderRoute: typeof SellerBuyerInterestRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/seller/business': {
+      id: '/seller/business'
+      path: '/business'
+      fullPath: '/seller/business'
+      preLoaderRoute: typeof SellerBusinessRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/seller/account': {
+      id: '/seller/account'
+      path: '/account'
+      fullPath: '/seller/account'
+      preLoaderRoute: typeof SellerAccountRouteImport
+      parentRoute: typeof SellerRoute
+    }
+    '/buyer/ndas': {
+      id: '/buyer/ndas'
+      path: '/ndas'
+      fullPath: '/buyer/ndas'
+      preLoaderRoute: typeof BuyerNdasRouteImport
+      parentRoute: typeof BuyerRoute
+    }
+    '/buyer/account': {
+      id: '/buyer/account'
+      path: '/account'
+      fullPath: '/buyer/account'
+      preLoaderRoute: typeof BuyerAccountRouteImport
+      parentRoute: typeof BuyerRoute
+    }
   }
 }
 
+interface BuyerRouteChildren {
+  BuyerAccountRoute: typeof BuyerAccountRoute
+  BuyerNdasRoute: typeof BuyerNdasRoute
+  BuyerIndexRoute: typeof BuyerIndexRoute
+}
+
+const BuyerRouteChildren: BuyerRouteChildren = {
+  BuyerAccountRoute: BuyerAccountRoute,
+  BuyerNdasRoute: BuyerNdasRoute,
+  BuyerIndexRoute: BuyerIndexRoute,
+}
+
+const BuyerRouteWithChildren = BuyerRoute._addFileChildren(BuyerRouteChildren)
+
+interface SellerRouteChildren {
+  SellerAccountRoute: typeof SellerAccountRoute
+  SellerBusinessRoute: typeof SellerBusinessRoute
+  SellerBuyerInterestRoute: typeof SellerBuyerInterestRoute
+  SellerConnectRoute: typeof SellerConnectRoute
+  SellerFinancialReviewRoute: typeof SellerFinancialReviewRoute
+  SellerRiskRoute: typeof SellerRiskRoute
+  SellerTeaserRoute: typeof SellerTeaserRoute
+  SellerValuationRoute: typeof SellerValuationRoute
+  SellerIndexRoute: typeof SellerIndexRoute
+}
+
+const SellerRouteChildren: SellerRouteChildren = {
+  SellerAccountRoute: SellerAccountRoute,
+  SellerBusinessRoute: SellerBusinessRoute,
+  SellerBuyerInterestRoute: SellerBuyerInterestRoute,
+  SellerConnectRoute: SellerConnectRoute,
+  SellerFinancialReviewRoute: SellerFinancialReviewRoute,
+  SellerRiskRoute: SellerRiskRoute,
+  SellerTeaserRoute: SellerTeaserRoute,
+  SellerValuationRoute: SellerValuationRoute,
+  SellerIndexRoute: SellerIndexRoute,
+}
+
+const SellerRouteWithChildren =
+  SellerRoute._addFileChildren(SellerRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BuyerRoute: BuyerRouteWithChildren,
+  BuyerSignupRoute: BuyerSignupRoute,
+  LoginRoute: LoginRoute,
+  SampleTeaserRoute: SampleTeaserRoute,
+  SellerRoute: SellerRouteWithChildren,
+  SignupRoute: SignupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
