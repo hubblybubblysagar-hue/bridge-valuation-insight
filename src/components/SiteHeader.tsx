@@ -5,19 +5,24 @@ import { Button } from "@/components/ui/button";
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Logo />
-        <nav className="hidden items-center gap-8 md:flex">
-          <a href="/#how" className="text-sm text-muted-foreground hover:text-foreground">How it works</a>
-          <a href="/#teaser" className="text-sm text-muted-foreground hover:text-foreground">Sample teaser</a>
-          <a href="/#pricing" className="text-sm text-muted-foreground hover:text-foreground">Pricing</a>
-          <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground">Sign in</Link>
-        </nav>
-        <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-40 w-full border-b border-border/70 bg-background/85 backdrop-blur">
+      <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-6 lg:px-10">
+        <div className="flex items-center gap-10">
+          <Logo />
+          <nav className="hidden items-center gap-7 text-sm text-foreground/70 md:flex">
+            <a href="/#thesis" className="transition-colors hover:text-foreground">About</a>
+            <a href="/#how" className="transition-colors hover:text-foreground">How it works</a>
+            <Link to="/sample-teaser" className="transition-colors hover:text-foreground">Portfolio</Link>
+            <a href="/#pricing" className="transition-colors hover:text-foreground">Pricing</a>
+          </nav>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link to="/login" className="hidden text-sm text-foreground/70 hover:text-foreground sm:inline">
+            Sign in
+          </Link>
           <ThemeToggle />
-          <Button asChild className="bg-navy text-navy-foreground hover:bg-navy/90 dark:bg-gold dark:text-gold-foreground dark:hover:bg-gold/90">
-            <Link to="/signup">Get started</Link>
+          <Button asChild className="h-9 rounded-md bg-olive px-4 text-olive-foreground shadow-none hover:bg-olive/90">
+            <Link to="/signup">Connect QuickBooks</Link>
           </Button>
         </div>
       </div>
