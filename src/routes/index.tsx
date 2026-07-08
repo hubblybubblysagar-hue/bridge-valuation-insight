@@ -25,7 +25,7 @@ function Landing() {
 
       {/* HERO — editorial serif, cream, vertical label */}
       <section className="relative border-b border-border/70">
-        <VerticalLabel>A private way to explore an exit</VerticalLabel>
+        <VerticalLabel>A confidential path to exit</VerticalLabel>
         <div className="mx-auto max-w-[1400px] px-6 py-20 lg:px-10 lg:py-28">
           <div className="grid gap-12 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
             <div>
