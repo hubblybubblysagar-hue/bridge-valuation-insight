@@ -14,13 +14,13 @@ import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { signOut, useAppState } from "@/lib/store";
 
-const NAV = [
+const NAV: { to: string; label: string; icon: typeof LayoutDashboard; exact?: boolean }[] = [
   { to: "/seller", label: "Overview", icon: LayoutDashboard, exact: true },
   { to: "/seller/valuation", label: "My Valuation", icon: FileBarChart },
   { to: "/seller/teaser", label: "My Teaser", icon: FileText },
   { to: "/seller/buyer-interest", label: "Buyer Interest", icon: Users },
   { to: "/seller/account", label: "Account", icon: UserCircle },
-] as const;
+];
 
 export function SellerLayout({ children }: { children: ReactNode }) {
   const user = useAppState((s) => s.user);

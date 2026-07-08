@@ -6,11 +6,11 @@ import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { signOut, useAppState } from "@/lib/store";
 
-const NAV = [
+const NAV: { to: string; label: string; icon: typeof LayoutGrid; exact?: boolean }[] = [
   { to: "/buyer", label: "Deal Feed", icon: LayoutGrid, exact: true },
   { to: "/buyer/ndas", label: "My NDAs", icon: FileSearch },
   { to: "/buyer/account", label: "Account", icon: UserCircle },
-] as const;
+];
 
 export function BuyerLayout({ children }: { children: ReactNode }) {
   const user = useAppState((s) => s.user);
