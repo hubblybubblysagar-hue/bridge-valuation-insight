@@ -86,14 +86,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Connect QuickBooks to generate a confidential business valuation range, adjusted earnings estimate, and anonymous buyer-ready teaser in minutes.",
       },
       { name: "author", content: "ExitBridge" },
-      { property: "og:title", content: "ExitBridge — Confidential business valuation & anonymous teaser" },
+      { property: "og:title", content: "ExitBridge — Know what your business could be worth" },
       {
         property: "og:description",
         content:
-          "Turn your QuickBooks financials into a preliminary valuation range and buyer-ready teaser. Anonymous by default. Seller approves all outreach.",
+          "Connect QuickBooks to generate a confidential business valuation range, adjusted earnings estimate, and anonymous buyer-ready teaser in minutes.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "ExitBridge — Know what your business could be worth" },
+      { name: "twitter:description", content: "Connect QuickBooks to generate a confidential business valuation range, adjusted earnings estimate, and anonymous buyer-ready teaser in minutes." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/91d8fbf6-caa1-4a1b-bd19-3d8529bbab17/id-preview-f7aa2c69--6ae97f37-467d-4bb0-8aa3-e936e5742141.lovable.app-1783542668562.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/91d8fbf6-caa1-4a1b-bd19-3d8529bbab17/id-preview-f7aa2c69--6ae97f37-467d-4bb0-8aa3-e936e5742141.lovable.app-1783542668562.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
