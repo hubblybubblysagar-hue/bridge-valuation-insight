@@ -422,7 +422,7 @@ function Landing() {
 function VerticalLabel({ children, dark }: { children: string; dark?: boolean }) {
   return (
     <span
-      className={`vertical-label pointer-events-none absolute left-4 top-16 hidden lg:block ${
+      className={`vertical-label pointer-events-none absolute left-2 top-20 z-10 hidden xl:block ${
         dark ? "text-ink-foreground/45" : "text-foreground/40"
       }`}
     >
