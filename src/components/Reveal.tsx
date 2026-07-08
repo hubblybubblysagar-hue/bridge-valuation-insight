@@ -22,7 +22,7 @@ export function Reveal({
     io.observe(ref.current);
     return () => io.disconnect();
   }, []);
-  const Component = Tag as never;
+  const Component: React.ElementType = Tag;
   return (
     <Component
       ref={ref as never}
