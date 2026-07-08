@@ -6,7 +6,8 @@ import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { signOut, useAppState } from "@/lib/store";
 
-const NAV: { to: string; label: string; icon: typeof LayoutGrid; exact?: boolean }[] = [
+type BuyerPath = "/buyer" | "/buyer/ndas" | "/buyer/account";
+const NAV: { to: BuyerPath; label: string; icon: typeof LayoutGrid; exact?: boolean }[] = [
   { to: "/buyer", label: "Deal Feed", icon: LayoutGrid, exact: true },
   { to: "/buyer/ndas", label: "My NDAs", icon: FileSearch },
   { to: "/buyer/account", label: "Account", icon: UserCircle },

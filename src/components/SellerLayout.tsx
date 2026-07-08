@@ -14,7 +14,8 @@ import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { signOut, useAppState } from "@/lib/store";
 
-const NAV: { to: string; label: string; icon: typeof LayoutDashboard; exact?: boolean }[] = [
+type SellerPath = "/seller" | "/seller/valuation" | "/seller/teaser" | "/seller/buyer-interest" | "/seller/account";
+const NAV: { to: SellerPath; label: string; icon: typeof LayoutDashboard; exact?: boolean }[] = [
   { to: "/seller", label: "Overview", icon: LayoutDashboard, exact: true },
   { to: "/seller/valuation", label: "My Valuation", icon: FileBarChart },
   { to: "/seller/teaser", label: "My Teaser", icon: FileText },
