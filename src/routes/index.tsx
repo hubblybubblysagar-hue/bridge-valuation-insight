@@ -421,15 +421,19 @@ function Landing() {
 
 function VerticalLabel({ children, dark }: { children: string; dark?: boolean }) {
   return (
-    <span
-      className={`vertical-label pointer-events-none absolute left-2 top-20 z-10 hidden xl:block ${
+    <div
+      className={`pointer-events-none absolute left-3 top-24 z-10 hidden xl:block ${
         dark ? "text-ink-foreground/45" : "text-foreground/40"
       }`}
     >
-      <span className={`border ${dark ? "border-white/15" : "border-border"} px-2 py-3`}>
+      <div
+        className={`vertical-label whitespace-nowrap border px-2 py-4 ${
+          dark ? "border-white/15" : "border-border"
+        }`}
+      >
         {children}
-      </span>
-    </span>
+      </div>
+    </div>
   );
 }
 
