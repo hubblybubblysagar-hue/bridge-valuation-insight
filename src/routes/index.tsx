@@ -428,7 +428,7 @@ function VerticalLabel({ children, dark }: { children: string; dark?: boolean })
     >
       <div
         className={`vertical-label whitespace-nowrap border px-2 py-4 ${
-          dark ? "border-white/15" : "border-border"
+          dark ? "border-white/15 bg-ink" : "border-border bg-cream"
         }`}
       >
         {children}
