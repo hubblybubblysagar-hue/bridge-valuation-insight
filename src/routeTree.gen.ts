@@ -26,8 +26,17 @@ import { Route as SellerConnectRouteImport } from './routes/seller.connect'
 import { Route as SellerBuyerInterestRouteImport } from './routes/seller.buyer-interest'
 import { Route as SellerBusinessRouteImport } from './routes/seller.business'
 import { Route as SellerAccountRouteImport } from './routes/seller.account'
+import { Route as DebugStateRouteImport } from './routes/debug.state'
 import { Route as BuyerNdasRouteImport } from './routes/buyer.ndas'
 import { Route as BuyerAccountRouteImport } from './routes/buyer.account'
+import { Route as DemoSellerValuationRouteImport } from './routes/demo.seller.valuation'
+import { Route as DemoSellerTeaserRouteImport } from './routes/demo.seller.teaser'
+import { Route as DemoSellerStartRouteImport } from './routes/demo.seller.start'
+import { Route as DemoSellerQuickbooksConnectedRouteImport } from './routes/demo.seller.quickbooks-connected'
+import { Route as DemoSellerFinancialReviewRouteImport } from './routes/demo.seller.financial-review'
+import { Route as DemoSellerBuyerInterestRouteImport } from './routes/demo.seller.buyer-interest'
+import { Route as DemoBuyerNdaRequestRouteImport } from './routes/demo.buyer.nda-request'
+import { Route as DemoBuyerFeedRouteImport } from './routes/demo.buyer.feed'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -114,6 +123,11 @@ const SellerAccountRoute = SellerAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => SellerRoute,
 } as any)
+const DebugStateRoute = DebugStateRouteImport.update({
+  id: '/debug/state',
+  path: '/debug/state',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BuyerNdasRoute = BuyerNdasRouteImport.update({
   id: '/ndas',
   path: '/ndas',
@@ -123,6 +137,48 @@ const BuyerAccountRoute = BuyerAccountRouteImport.update({
   id: '/account',
   path: '/account',
   getParentRoute: () => BuyerRoute,
+} as any)
+const DemoSellerValuationRoute = DemoSellerValuationRouteImport.update({
+  id: '/demo/seller/valuation',
+  path: '/demo/seller/valuation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoSellerTeaserRoute = DemoSellerTeaserRouteImport.update({
+  id: '/demo/seller/teaser',
+  path: '/demo/seller/teaser',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoSellerStartRoute = DemoSellerStartRouteImport.update({
+  id: '/demo/seller/start',
+  path: '/demo/seller/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoSellerQuickbooksConnectedRoute =
+  DemoSellerQuickbooksConnectedRouteImport.update({
+    id: '/demo/seller/quickbooks-connected',
+    path: '/demo/seller/quickbooks-connected',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DemoSellerFinancialReviewRoute =
+  DemoSellerFinancialReviewRouteImport.update({
+    id: '/demo/seller/financial-review',
+    path: '/demo/seller/financial-review',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DemoSellerBuyerInterestRoute = DemoSellerBuyerInterestRouteImport.update({
+  id: '/demo/seller/buyer-interest',
+  path: '/demo/seller/buyer-interest',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoBuyerNdaRequestRoute = DemoBuyerNdaRequestRouteImport.update({
+  id: '/demo/buyer/nda-request',
+  path: '/demo/buyer/nda-request',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoBuyerFeedRoute = DemoBuyerFeedRouteImport.update({
+  id: '/demo/buyer/feed',
+  path: '/demo/buyer/feed',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -135,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/buyer/account': typeof BuyerAccountRoute
   '/buyer/ndas': typeof BuyerNdasRoute
+  '/debug/state': typeof DebugStateRoute
   '/seller/account': typeof SellerAccountRoute
   '/seller/business': typeof SellerBusinessRoute
   '/seller/buyer-interest': typeof SellerBuyerInterestRoute
@@ -145,6 +202,14 @@ export interface FileRoutesByFullPath {
   '/seller/valuation': typeof SellerValuationRoute
   '/buyer/': typeof BuyerIndexRoute
   '/seller/': typeof SellerIndexRoute
+  '/demo/buyer/feed': typeof DemoBuyerFeedRoute
+  '/demo/buyer/nda-request': typeof DemoBuyerNdaRequestRoute
+  '/demo/seller/buyer-interest': typeof DemoSellerBuyerInterestRoute
+  '/demo/seller/financial-review': typeof DemoSellerFinancialReviewRoute
+  '/demo/seller/quickbooks-connected': typeof DemoSellerQuickbooksConnectedRoute
+  '/demo/seller/start': typeof DemoSellerStartRoute
+  '/demo/seller/teaser': typeof DemoSellerTeaserRoute
+  '/demo/seller/valuation': typeof DemoSellerValuationRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -154,6 +219,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/buyer/account': typeof BuyerAccountRoute
   '/buyer/ndas': typeof BuyerNdasRoute
+  '/debug/state': typeof DebugStateRoute
   '/seller/account': typeof SellerAccountRoute
   '/seller/business': typeof SellerBusinessRoute
   '/seller/buyer-interest': typeof SellerBuyerInterestRoute
@@ -164,6 +230,14 @@ export interface FileRoutesByTo {
   '/seller/valuation': typeof SellerValuationRoute
   '/buyer': typeof BuyerIndexRoute
   '/seller': typeof SellerIndexRoute
+  '/demo/buyer/feed': typeof DemoBuyerFeedRoute
+  '/demo/buyer/nda-request': typeof DemoBuyerNdaRequestRoute
+  '/demo/seller/buyer-interest': typeof DemoSellerBuyerInterestRoute
+  '/demo/seller/financial-review': typeof DemoSellerFinancialReviewRoute
+  '/demo/seller/quickbooks-connected': typeof DemoSellerQuickbooksConnectedRoute
+  '/demo/seller/start': typeof DemoSellerStartRoute
+  '/demo/seller/teaser': typeof DemoSellerTeaserRoute
+  '/demo/seller/valuation': typeof DemoSellerValuationRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -176,6 +250,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/buyer/account': typeof BuyerAccountRoute
   '/buyer/ndas': typeof BuyerNdasRoute
+  '/debug/state': typeof DebugStateRoute
   '/seller/account': typeof SellerAccountRoute
   '/seller/business': typeof SellerBusinessRoute
   '/seller/buyer-interest': typeof SellerBuyerInterestRoute
@@ -186,6 +261,14 @@ export interface FileRoutesById {
   '/seller/valuation': typeof SellerValuationRoute
   '/buyer/': typeof BuyerIndexRoute
   '/seller/': typeof SellerIndexRoute
+  '/demo/buyer/feed': typeof DemoBuyerFeedRoute
+  '/demo/buyer/nda-request': typeof DemoBuyerNdaRequestRoute
+  '/demo/seller/buyer-interest': typeof DemoSellerBuyerInterestRoute
+  '/demo/seller/financial-review': typeof DemoSellerFinancialReviewRoute
+  '/demo/seller/quickbooks-connected': typeof DemoSellerQuickbooksConnectedRoute
+  '/demo/seller/start': typeof DemoSellerStartRoute
+  '/demo/seller/teaser': typeof DemoSellerTeaserRoute
+  '/demo/seller/valuation': typeof DemoSellerValuationRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -199,6 +282,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/buyer/account'
     | '/buyer/ndas'
+    | '/debug/state'
     | '/seller/account'
     | '/seller/business'
     | '/seller/buyer-interest'
@@ -209,6 +293,14 @@ export interface FileRouteTypes {
     | '/seller/valuation'
     | '/buyer/'
     | '/seller/'
+    | '/demo/buyer/feed'
+    | '/demo/buyer/nda-request'
+    | '/demo/seller/buyer-interest'
+    | '/demo/seller/financial-review'
+    | '/demo/seller/quickbooks-connected'
+    | '/demo/seller/start'
+    | '/demo/seller/teaser'
+    | '/demo/seller/valuation'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -218,6 +310,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/buyer/account'
     | '/buyer/ndas'
+    | '/debug/state'
     | '/seller/account'
     | '/seller/business'
     | '/seller/buyer-interest'
@@ -228,6 +321,14 @@ export interface FileRouteTypes {
     | '/seller/valuation'
     | '/buyer'
     | '/seller'
+    | '/demo/buyer/feed'
+    | '/demo/buyer/nda-request'
+    | '/demo/seller/buyer-interest'
+    | '/demo/seller/financial-review'
+    | '/demo/seller/quickbooks-connected'
+    | '/demo/seller/start'
+    | '/demo/seller/teaser'
+    | '/demo/seller/valuation'
   id:
     | '__root__'
     | '/'
@@ -239,6 +340,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/buyer/account'
     | '/buyer/ndas'
+    | '/debug/state'
     | '/seller/account'
     | '/seller/business'
     | '/seller/buyer-interest'
@@ -249,6 +351,14 @@ export interface FileRouteTypes {
     | '/seller/valuation'
     | '/buyer/'
     | '/seller/'
+    | '/demo/buyer/feed'
+    | '/demo/buyer/nda-request'
+    | '/demo/seller/buyer-interest'
+    | '/demo/seller/financial-review'
+    | '/demo/seller/quickbooks-connected'
+    | '/demo/seller/start'
+    | '/demo/seller/teaser'
+    | '/demo/seller/valuation'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -259,6 +369,15 @@ export interface RootRouteChildren {
   SampleTeaserRoute: typeof SampleTeaserRoute
   SellerRoute: typeof SellerRouteWithChildren
   SignupRoute: typeof SignupRoute
+  DebugStateRoute: typeof DebugStateRoute
+  DemoBuyerFeedRoute: typeof DemoBuyerFeedRoute
+  DemoBuyerNdaRequestRoute: typeof DemoBuyerNdaRequestRoute
+  DemoSellerBuyerInterestRoute: typeof DemoSellerBuyerInterestRoute
+  DemoSellerFinancialReviewRoute: typeof DemoSellerFinancialReviewRoute
+  DemoSellerQuickbooksConnectedRoute: typeof DemoSellerQuickbooksConnectedRoute
+  DemoSellerStartRoute: typeof DemoSellerStartRoute
+  DemoSellerTeaserRoute: typeof DemoSellerTeaserRoute
+  DemoSellerValuationRoute: typeof DemoSellerValuationRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -382,6 +501,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SellerAccountRouteImport
       parentRoute: typeof SellerRoute
     }
+    '/debug/state': {
+      id: '/debug/state'
+      path: '/debug/state'
+      fullPath: '/debug/state'
+      preLoaderRoute: typeof DebugStateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/buyer/ndas': {
       id: '/buyer/ndas'
       path: '/ndas'
@@ -395,6 +521,62 @@ declare module '@tanstack/react-router' {
       fullPath: '/buyer/account'
       preLoaderRoute: typeof BuyerAccountRouteImport
       parentRoute: typeof BuyerRoute
+    }
+    '/demo/seller/valuation': {
+      id: '/demo/seller/valuation'
+      path: '/demo/seller/valuation'
+      fullPath: '/demo/seller/valuation'
+      preLoaderRoute: typeof DemoSellerValuationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/seller/teaser': {
+      id: '/demo/seller/teaser'
+      path: '/demo/seller/teaser'
+      fullPath: '/demo/seller/teaser'
+      preLoaderRoute: typeof DemoSellerTeaserRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/seller/start': {
+      id: '/demo/seller/start'
+      path: '/demo/seller/start'
+      fullPath: '/demo/seller/start'
+      preLoaderRoute: typeof DemoSellerStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/seller/quickbooks-connected': {
+      id: '/demo/seller/quickbooks-connected'
+      path: '/demo/seller/quickbooks-connected'
+      fullPath: '/demo/seller/quickbooks-connected'
+      preLoaderRoute: typeof DemoSellerQuickbooksConnectedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/seller/financial-review': {
+      id: '/demo/seller/financial-review'
+      path: '/demo/seller/financial-review'
+      fullPath: '/demo/seller/financial-review'
+      preLoaderRoute: typeof DemoSellerFinancialReviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/seller/buyer-interest': {
+      id: '/demo/seller/buyer-interest'
+      path: '/demo/seller/buyer-interest'
+      fullPath: '/demo/seller/buyer-interest'
+      preLoaderRoute: typeof DemoSellerBuyerInterestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/buyer/nda-request': {
+      id: '/demo/buyer/nda-request'
+      path: '/demo/buyer/nda-request'
+      fullPath: '/demo/buyer/nda-request'
+      preLoaderRoute: typeof DemoBuyerNdaRequestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/buyer/feed': {
+      id: '/demo/buyer/feed'
+      path: '/demo/buyer/feed'
+      fullPath: '/demo/buyer/feed'
+      preLoaderRoute: typeof DemoBuyerFeedRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -448,6 +630,15 @@ const rootRouteChildren: RootRouteChildren = {
   SampleTeaserRoute: SampleTeaserRoute,
   SellerRoute: SellerRouteWithChildren,
   SignupRoute: SignupRoute,
+  DebugStateRoute: DebugStateRoute,
+  DemoBuyerFeedRoute: DemoBuyerFeedRoute,
+  DemoBuyerNdaRequestRoute: DemoBuyerNdaRequestRoute,
+  DemoSellerBuyerInterestRoute: DemoSellerBuyerInterestRoute,
+  DemoSellerFinancialReviewRoute: DemoSellerFinancialReviewRoute,
+  DemoSellerQuickbooksConnectedRoute: DemoSellerQuickbooksConnectedRoute,
+  DemoSellerStartRoute: DemoSellerStartRoute,
+  DemoSellerTeaserRoute: DemoSellerTeaserRoute,
+  DemoSellerValuationRoute: DemoSellerValuationRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
