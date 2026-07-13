@@ -50,7 +50,7 @@ export interface Valuation {
   multipleLow: number;
   multipleBase: number;
   multipleHigh: number;
-  confidence: "Low" | "Moderate" | "Medium" | "High";
+  confidence: "Low" | "Medium" | "High";
   drivers: string[];
   concerns: string[];
   upside: string[];
@@ -225,7 +225,7 @@ export const DEMO_RISK: RiskAnswers = {
   revenueType: "repeat",
   facility: "owned",
   keyEmployees: "yes",
-  bookQuality: "clean",
+  bookQuality: "mostly-clean",
 };
 
 export const DEMO_VALUATION: Valuation = {
