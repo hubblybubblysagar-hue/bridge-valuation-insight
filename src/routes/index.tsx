@@ -23,7 +23,7 @@ function Landing() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      {/* HERO — editorial serif, cream, vertical label */}
+      {/* HERO — editorial serif, cream, section cue */}
       <section className="relative border-b border-border/70">
         <VerticalLabel>A confidential path to exit</VerticalLabel>
         <div className="mx-auto max-w-[1400px] px-6 py-20 lg:px-10 lg:py-28">
@@ -422,15 +422,16 @@ function Landing() {
 function VerticalLabel({ children, dark }: { children: string; dark?: boolean }) {
   return (
     <div
-      className={`pointer-events-none absolute left-3 top-24 z-10 hidden xl:block ${
+      className={`pointer-events-none absolute left-10 top-8 z-10 hidden xl:block ${
         dark ? "text-ink-foreground/45" : "text-foreground/40"
       }`}
     >
       <div
-        className={`vertical-label whitespace-nowrap border px-2 py-4 ${
-          dark ? "border-white/15 bg-ink" : "border-border bg-cream"
+        className={`vertical-label inline-flex items-center gap-3 whitespace-nowrap border px-4 py-2 ${
+          dark ? "border-white/15 bg-ink/95" : "border-border bg-background/95"
         }`}
       >
+        <span className="h-px w-7 bg-current opacity-60" />
         {children}
       </div>
     </div>
