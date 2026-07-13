@@ -31,17 +31,15 @@ function Landing() {
             <div>
               <Reveal>
                 <h1 className="font-serif text-[44px] leading-[1.02] tracking-tight text-foreground sm:text-6xl lg:text-[76px]">
-                  Know what your business
-                  <br />
-                  could be worth.{" "}
-                  <span className="italic text-olive">Before it's obvious.</span>
+                  Know what your business could be worth{" "}
+                  <span className="italic text-olive">before you talk to a broker.</span>
                 </h1>
               </Reveal>
               <Reveal delay={150}>
                 <p className="mt-8 max-w-xl text-base leading-relaxed text-foreground/70 sm:text-lg">
-                  ExitBridge turns your QuickBooks financials into a confidential
-                  valuation range, adjusted earnings estimate, and anonymous
-                  buyer-ready teaser in minutes.
+                  Connect QuickBooks to generate a confidential valuation range,
+                  adjusted earnings estimate, and anonymous buyer-ready teaser
+                  in minutes.
                 </p>
               </Reveal>
               <Reveal delay={280}>
@@ -297,7 +295,7 @@ function Landing() {
           <div className="mt-16 grid divide-x divide-border/70 border border-border/70 md:grid-cols-3">
             <BigStat number="4x" label="Faster to a defensible valuation range" />
             <BigStat number="0" label="Public listings, ever" />
-            <BigStat number="37" label="Anonymous buyer profiles per average match run" />
+            <BigStat number="Private" label="Example private buyer match run — after seller approval" />
           </div>
         </div>
       </section>
