@@ -214,9 +214,9 @@
   background-size: 22px 22px;
 }
 @utility vertical-label {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  letter-spacing: 0.2em;
+  writing-mode: horizontal-tb;
+  transform: none;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   font-size: 10px;
   font-weight: 500;
