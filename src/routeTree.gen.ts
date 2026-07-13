@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SellerRouteImport } from './routes/seller'
 import { Route as SampleTeaserRouteImport } from './routes/sample-teaser'
+import { Route as QaRouteImport } from './routes/qa'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as BuyerSignupRouteImport } from './routes/buyer-signup'
 import { Route as BuyerRouteImport } from './routes/buyer'
@@ -51,6 +52,11 @@ const SellerRoute = SellerRouteImport.update({
 const SampleTeaserRoute = SampleTeaserRouteImport.update({
   id: '/sample-teaser',
   path: '/sample-teaser',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QaRoute = QaRouteImport.update({
+  id: '/qa',
+  path: '/qa',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -186,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/buyer': typeof BuyerRouteWithChildren
   '/buyer-signup': typeof BuyerSignupRoute
   '/login': typeof LoginRoute
+  '/qa': typeof QaRoute
   '/sample-teaser': typeof SampleTeaserRoute
   '/seller': typeof SellerRouteWithChildren
   '/signup': typeof SignupRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/buyer-signup': typeof BuyerSignupRoute
   '/login': typeof LoginRoute
+  '/qa': typeof QaRoute
   '/sample-teaser': typeof SampleTeaserRoute
   '/signup': typeof SignupRoute
   '/buyer/account': typeof BuyerAccountRoute
@@ -245,6 +253,7 @@ export interface FileRoutesById {
   '/buyer': typeof BuyerRouteWithChildren
   '/buyer-signup': typeof BuyerSignupRoute
   '/login': typeof LoginRoute
+  '/qa': typeof QaRoute
   '/sample-teaser': typeof SampleTeaserRoute
   '/seller': typeof SellerRouteWithChildren
   '/signup': typeof SignupRoute
@@ -277,6 +286,7 @@ export interface FileRouteTypes {
     | '/buyer'
     | '/buyer-signup'
     | '/login'
+    | '/qa'
     | '/sample-teaser'
     | '/seller'
     | '/signup'
@@ -306,6 +316,7 @@ export interface FileRouteTypes {
     | '/'
     | '/buyer-signup'
     | '/login'
+    | '/qa'
     | '/sample-teaser'
     | '/signup'
     | '/buyer/account'
@@ -335,6 +346,7 @@ export interface FileRouteTypes {
     | '/buyer'
     | '/buyer-signup'
     | '/login'
+    | '/qa'
     | '/sample-teaser'
     | '/seller'
     | '/signup'
@@ -366,6 +378,7 @@ export interface RootRouteChildren {
   BuyerRoute: typeof BuyerRouteWithChildren
   BuyerSignupRoute: typeof BuyerSignupRoute
   LoginRoute: typeof LoginRoute
+  QaRoute: typeof QaRoute
   SampleTeaserRoute: typeof SampleTeaserRoute
   SellerRoute: typeof SellerRouteWithChildren
   SignupRoute: typeof SignupRoute
@@ -401,6 +414,13 @@ declare module '@tanstack/react-router' {
       path: '/sample-teaser'
       fullPath: '/sample-teaser'
       preLoaderRoute: typeof SampleTeaserRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/qa': {
+      id: '/qa'
+      path: '/qa'
+      fullPath: '/qa'
+      preLoaderRoute: typeof QaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -627,6 +647,7 @@ const rootRouteChildren: RootRouteChildren = {
   BuyerRoute: BuyerRouteWithChildren,
   BuyerSignupRoute: BuyerSignupRoute,
   LoginRoute: LoginRoute,
+  QaRoute: QaRoute,
   SampleTeaserRoute: SampleTeaserRoute,
   SellerRoute: SellerRouteWithChildren,
   SignupRoute: SignupRoute,
@@ -643,3 +664,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
