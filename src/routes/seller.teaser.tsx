@@ -11,7 +11,7 @@ export const Route = createFileRoute("/seller/teaser")({
   component: TeaserPage,
 });
 
-function TeaserPage() {
+export function TeaserPage() {
   const navigate = useNavigate();
   const business = useAppState((s) => s.business);
   const financials = useAppState((s) => s.financials);

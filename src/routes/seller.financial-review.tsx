@@ -15,7 +15,7 @@ export const Route = createFileRoute("/seller/financial-review")({
   component: ReviewPage,
 });
 
-function ReviewPage() {
+export function ReviewPage() {
   const navigate = useNavigate();
   const financials = useAppState((s) => s.financials);
   const [form, setForm] = useState<Financials | null>(financials);

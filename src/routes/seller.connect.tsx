@@ -22,7 +22,7 @@ const MOCK: Financials = {
   otherAddbacks: 0,
 };
 
-function ConnectPage() {
+export function ConnectPage() {
   const qb = useAppState((s) => s.qbConnected);
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
