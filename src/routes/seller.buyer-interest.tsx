@@ -19,7 +19,7 @@ const CATEGORIES = [
   { name: "Local operators", count: 3 },
 ];
 
-function BuyerInterestPage() {
+export function BuyerInterestPage() {
   const approved = useAppState((s) => s.outreachApproved);
   const valuation = useAppState((s) => s.valuation);
   const [confirming, setConfirming] = useState(false);

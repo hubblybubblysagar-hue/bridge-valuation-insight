@@ -10,7 +10,7 @@ export const Route = createFileRoute("/seller/valuation")({
   component: ValuationPage,
 });
 
-function ValuationPage() {
+export function ValuationPage() {
   const navigate = useNavigate();
   const v = useAppState((s) => s.valuation);
   const business = useAppState((s) => s.business);

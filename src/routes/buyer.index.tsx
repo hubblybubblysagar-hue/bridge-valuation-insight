@@ -45,7 +45,7 @@ const DEALS = [
   },
 ];
 
-function BuyerFeed() {
+export function BuyerFeed() {
   const user = useAppState((s) => s.user);
   const ndas = useAppState((s) => s.ndaRequests);
   const [open, setOpen] = useState<string | null>(null);

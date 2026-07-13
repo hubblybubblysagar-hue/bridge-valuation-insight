@@ -9,7 +9,7 @@ export const Route = createFileRoute("/seller/")({
   component: SellerHome,
 });
 
-function SellerHome() {
+export function SellerHome() {
   const qb = useAppState((s) => s.qbConnected);
   const valuation = useAppState((s) => s.valuation);
 
