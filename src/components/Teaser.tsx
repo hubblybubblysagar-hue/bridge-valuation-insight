@@ -28,6 +28,17 @@ export function TeaserDocument({ business, valuation, revenue }: Props) {
   const revenueRange = bandRevenue(revenue);
   const sdeRange = bandSde(valuation.sde);
 
+  const overviewParts: string[] = [
+    `An established ${industryLabel} company operating in the ${region} market`,
+  ];
+  if (business.yearsInBusiness) {
+    overviewParts.push(`with approximately ${business.yearsInBusiness} years of operating history`);
+  }
+  if (business.employees) {
+    overviewParts.push(`and a team of approximately ${business.employees} employees`);
+  }
+  const overviewSentence = overviewParts.join(" ") + ".";
+
   return (
     <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card p-8 shadow-elegant print:shadow-none sm:p-12">
       <div className="flex items-center justify-between border-b border-border pb-6">
@@ -44,18 +55,24 @@ export function TeaserDocument({ business, valuation, revenue }: Props) {
       <section className="mt-8">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Business Overview</h2>
         <p className="mt-3 text-sm leading-relaxed text-foreground/90">
-          An established {industryLabel.toLowerCase()} company operating in the {region.toLowerCase()} market
-          with {business.yearsInBusiness || "multiple"} years of history and a team of approximately{" "}
-          {business.employees || "several"} employees. The business generates consistent cash flow with a
-          professionalized operating model and clear opportunities for continued growth under new ownership.
+          {overviewSentence} The business shows meaningful owner earnings based
+          on preliminary financial inputs. Further diligence would be required
+          to validate add-backs, customer concentration, and transition
+          readiness. The opportunity may fit buyers seeking an established
+          local services platform with potential operational upside.
         </p>
       </section>
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2">
-        <MetricCard icon={TrendingUp} label="Revenue (range)" value={revenueRange} />
-        <MetricCard icon={Building2} label="Adjusted SDE (range)" value={sdeRange} />
-        <MetricCard icon={MapPin} label="Region" value={region} />
-        <MetricCard icon={Users} label="Employees" value={String(business.employees || "—")} />
+      <section className="mt-8">
+        <div className="mb-3 inline-flex items-center gap-2 rounded-sm border border-border bg-muted/40 px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Preliminary · Owner-provided
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MetricCard icon={TrendingUp} label="Revenue (range)" value={revenueRange} />
+          <MetricCard icon={Building2} label="Adjusted SDE (range)" value={sdeRange} />
+          <MetricCard icon={MapPin} label="Region" value={region} />
+          <MetricCard icon={Users} label="Employees" value={business.employees ? String(business.employees) : "—"} />
+        </div>
       </section>
 
       <section className="mt-8 grid gap-6 sm:grid-cols-2">

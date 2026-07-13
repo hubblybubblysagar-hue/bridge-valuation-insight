@@ -30,12 +30,18 @@ export function BuyerInterestPage() {
         <div className="text-xs font-semibold uppercase tracking-widest text-gold">Private Buyer Interest Test</div>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
           {valuation
-            ? "Based on your business profile, ExitBridge found potential buyer matches."
+            ? "Based on your business profile, ExitBridge assembled an example match pool."
             : "Complete your valuation to see potential buyer matches."}
         </h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
-          37 matched buyer profiles across five categories. Your business will
-          never be shared publicly. Outreach only happens after you approve.
+          Example match pool: 37 buyer profiles across five categories. Your
+          business is never shared publicly. Outreach uses only your anonymous
+          teaser and only after you approve.
+        </p>
+        <p className="mt-2 max-w-2xl text-xs text-muted-foreground">
+          In production, buyer matches will be based on verified acquisition
+          criteria, available capital, geography, industry preference, and
+          seller approval.
         </p>
       </div>
 

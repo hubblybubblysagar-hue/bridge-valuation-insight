@@ -55,7 +55,7 @@ function SampleTeaser() {
             multipleLow: 2.7,
             multipleBase: 3.2,
             multipleHigh: 3.7,
-            confidence: "Moderate",
+            confidence: "Medium",
             drivers: [
               "Recurring service contract base supports predictable cash flow.",
               "Diversified customer base with no single concentration risk.",

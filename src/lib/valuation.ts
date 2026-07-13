@@ -50,15 +50,25 @@ export function computeValuation(
     upside.push("Convert one-time engagements into maintenance or subscription plans.");
   }
 
+  // Revenue type additions
+  if (risk.revenueType === "project") {
+    concerns.push("Project-based revenue may require buyers to diligence backlog and pipeline durability.");
+  }
+
   // Customer concentration
-  const cc = parseFloat(risk.customerConcentration || "0");
-  if (!Number.isNaN(cc)) {
-    if (cc > 30) {
-      baseMult -= 0.3;
-      concerns.push(`Customer concentration above 30% (${cc}%) reduces buyer confidence.`);
-      upside.push("Diversify top-customer revenue below 20% of total.");
-    } else if (cc <= 15) {
-      drivers.push("Diversified customer base with no single concentration risk.");
+  const ccRaw = (risk.customerConcentration ?? "").trim();
+  if (ccRaw === "") {
+    concerns.push("Customer concentration should be validated before sharing with buyers.");
+  } else {
+    const cc = parseFloat(ccRaw);
+    if (!Number.isNaN(cc)) {
+      if (cc > 30) {
+        baseMult -= 0.3;
+        concerns.push(`Customer concentration above 30% (${cc}%) reduces buyer confidence.`);
+        upside.push("Diversify top-customer revenue below 20% of total.");
+      } else if (cc <= 15) {
+        drivers.push("Diversified customer base with no single concentration risk.");
+      }
     }
   }
 
@@ -67,7 +77,10 @@ export function computeValuation(
     baseMult -= 0.25;
     concerns.push("Owner personally manages most customer relationships.");
     upside.push("Delegate key accounts and document customer relationships before sale.");
-  } else {
+  } else if (risk.ownerRelationships === "some") {
+    baseMult -= 0.1;
+    concerns.push("Some customer relationships appear owner-influenced and should be transition-planned.");
+  } else if (risk.ownerRelationships === "no") {
     drivers.push("Customer relationships are institutionalized across the team.");
   }
 
@@ -75,26 +88,37 @@ export function computeValuation(
   if (risk.transitionSupport === "yes") {
     baseMult += 0.15;
     drivers.push("Owner willing to support a transition period.");
+  } else if (risk.transitionSupport === "limited") {
+    baseMult += 0.05;
+    concerns.push("Limited seller transition support may narrow the buyer pool.");
   }
 
   // Employees / operational depth
   if (risk.keyEmployees === "yes") {
     drivers.push("Key employees provide operational continuity.");
+  } else if (risk.keyEmployees === "some") {
+    concerns.push("Some operational continuity exists, but key-person dependencies should be documented.");
   } else if (risk.keyEmployees === "no") {
     concerns.push("Limited operational depth outside the owner.");
     upside.push("Hire or promote a general manager to reduce owner dependence.");
   }
 
-  // Books
-  let confidence: Valuation["confidence"] = "Moderate";
-  if (risk.bookQuality === "very-clean") confidence = "High";
-  else if (risk.bookQuality === "somewhat-messy" || risk.bookQuality === "not-sure") {
+  // Books / confidence
+  let confidence: Valuation["confidence"] = "Medium";
+  if (risk.bookQuality === "very-clean") {
+    confidence = "High";
+  } else if (risk.bookQuality === "mostly-clean") {
+    confidence = "Medium";
+  } else if (risk.bookQuality === "somewhat-messy" || risk.bookQuality === "not-sure") {
     confidence = "Low";
     concerns.push("Bookkeeping quality may lengthen buyer diligence.");
     upside.push("Reconcile books and produce reviewed financial statements.");
+  } else {
+    confidence = "Medium";
+    concerns.push("Bookkeeping quality should be validated with source financials.");
   }
 
-  const spread = confidence === "High" ? 0.2 : confidence === "Moderate" ? 0.3 : 0.4;
+  const spread = confidence === "High" ? 0.2 : confidence === "Medium" ? 0.3 : 0.4;
   const mLow = Math.max(1.2, baseMult - spread);
   const mHigh = baseMult + spread;
 

@@ -58,11 +58,15 @@ export function ValuationPage() {
           </div>
           <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
             <strong className="text-foreground">Methodology.</strong> ExitBridge
-            applies an industry base multiple to your Adjusted SDE, then adjusts
-            for revenue quality, customer concentration, owner dependence,
-            operational depth, and transition support. Bookkeeping quality
-            widens or narrows the range. This is a preliminary directional
-            estimate, not a certified valuation.
+            estimates Adjusted SDE from connected or owner-provided financials,
+            applies an industry benchmark multiple, and adjusts the range based
+            on revenue quality, owner dependence, customer concentration,
+            transition support, and financial documentation quality.
+          </p>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            This is a preliminary directional estimate, not a certified
+            appraisal, fairness opinion, tax opinion, legal advice, or
+            financing commitment.
           </p>
         </div>
 

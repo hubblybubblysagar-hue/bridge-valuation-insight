@@ -12,7 +12,7 @@ export function SiteHeader() {
           <nav className="hidden items-center gap-7 text-sm text-foreground/70 md:flex">
             <a href="/#thesis" className="transition-colors hover:text-foreground">About</a>
             <a href="/#how" className="transition-colors hover:text-foreground">How it works</a>
-            <Link to="/sample-teaser" className="transition-colors hover:text-foreground">Portfolio</Link>
+            <Link to="/sample-teaser" className="transition-colors hover:text-foreground">Sample Teaser</Link>
             <a href="/#pricing" className="transition-colors hover:text-foreground">Pricing</a>
           </nav>
         </div>
