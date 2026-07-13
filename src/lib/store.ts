@@ -112,6 +112,11 @@ function ensureHydrated() {
   if (hydrated || typeof window === "undefined") return;
   load();
   hydrated = true;
+  try {
+    ensureDemoAccounts();
+  } catch {
+    /* noop */
+  }
   listeners.forEach((l) => l());
 }
 
