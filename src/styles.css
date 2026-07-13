@@ -106,6 +106,12 @@
   /* Warm cream background */
   --cream: oklch(0.985 0.01 95);
 
+  /* QA / accent palette */
+  --navy: #0A1628;
+  --navy-foreground: oklch(0.97 0.01 100);
+  --gold: #C9A227;
+  --gold-foreground: oklch(0.16 0.02 110);
+
   --background: oklch(0.985 0.01 95);
   --foreground: oklch(0.18 0.02 110);
 
