@@ -52,6 +52,21 @@ export async function persistBusiness(business: Business): Promise<string | null
   return data.id;
 }
 
+export async function ensureDraftBusiness(): Promise<string | null> {
+  const userId = await currentUserId();
+  if (!userId) return null;
+  const existing = getState().currentBusinessId;
+  if (existing) return existing;
+  const { data, error } = await supabase
+    .from("businesses")
+    .insert({ seller_id: userId, status: "draft" })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  setState({ currentBusinessId: data.id });
+  return data.id;
+}
+
 export async function persistFinancials(
   financials: Financials,
   source: "manual" | "quickbooks_mock" | "upload" | "quickbooks" = "manual",
@@ -59,7 +74,7 @@ export async function persistFinancials(
 ): Promise<string | null> {
   const userId = await currentUserId();
   if (!userId) return null;
-  const businessId = getState().currentBusinessId;
+  const businessId = (await ensureDraftBusiness()) ?? getState().currentBusinessId;
   if (!businessId) return null;
   const existingId = getState().currentFinancialsId;
   const sde = computeSDE(financials);
