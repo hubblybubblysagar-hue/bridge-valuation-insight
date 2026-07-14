@@ -105,12 +105,3 @@ export function SellerLayout({ children }: { children: ReactNode }) {
   );
 }
 
-// tiny helper to peek current state without subscribing
-function useAppStateSnapshot() {
-  if (typeof localStorage === "undefined") return null;
-  try {
-    return JSON.parse(localStorage.getItem("exitbridge-state-v1") || "null");
-  } catch {
-    return null;
-  }
-}
