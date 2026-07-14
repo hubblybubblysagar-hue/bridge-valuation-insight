@@ -122,11 +122,12 @@ export async function persistRisk(risk: RiskAnswers): Promise<void> {
     key_employees: risk.keyEmployees || null,
     book_quality: risk.bookQuality || null,
   };
-  // Upsert-by-business: delete existing then insert (simpler than unique index)
-  await supabase.from("risk_answers").delete().eq("business_id", businessId);
-  const { error } = await supabase.from("risk_answers").insert(payload);
+  const { error } = await supabase
+    .from("risk_answers")
+    .upsert(payload, { onConflict: "business_id" });
   if (error) throw new Error(error.message);
 }
+
 
 export async function persistValuation(valuation: Valuation): Promise<string | null> {
   const userId = await currentUserId();
@@ -154,10 +155,14 @@ export async function persistValuation(valuation: Valuation): Promise<string | n
     disclaimer:
       "Preliminary directional estimate, not a certified appraisal, fairness opinion, tax opinion, legal advice, or financing commitment.",
   };
-  await supabase.from("valuations").delete().eq("business_id", businessId);
-  const { data, error } = await supabase.from("valuations").insert(payload).select("id").single();
+  const { data, error } = await supabase
+    .from("valuations")
+    .upsert(payload, { onConflict: "business_id" })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
   setState({ currentValuationId: data.id });
+
   await supabase
     .from("businesses")
     .update({ status: "valuation_generated" })
@@ -190,10 +195,14 @@ export async function persistTeaser(
     confidentiality_note: snapshot.confidentialityNote,
     share_slug: slug,
   };
-  await supabase.from("teasers").delete().eq("business_id", businessId);
-  const { data, error } = await supabase.from("teasers").insert(payload).select("id").single();
+  const { data, error } = await supabase
+    .from("teasers")
+    .upsert(payload, { onConflict: "business_id" })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
   setState({ currentTeaserId: data.id, teaserApproved: true });
+
   await supabase
     .from("businesses")
     .update({ status: "teaser_generated" })
@@ -210,13 +219,17 @@ export async function approveBuyerInterestTest(): Promise<void> {
   if (teaserId) {
     await supabase.from("teasers").update({ approved_for_outreach: true }).eq("id", teaserId);
   }
-  await supabase.from("buyer_interest_tests").insert({
-    business_id: businessId,
-    teaser_id: teaserId,
-    seller_id: userId,
-    status: "approved",
-    approved_at: new Date().toISOString(),
-  });
+  await supabase.from("buyer_interest_tests").upsert(
+    {
+      business_id: businessId,
+      teaser_id: teaserId,
+      seller_id: userId,
+      status: "approved",
+      approved_at: new Date().toISOString(),
+    },
+    { onConflict: "business_id" },
+  );
+
   await supabase
     .from("businesses")
     .update({ status: "interest_test_approved" })
@@ -247,9 +260,11 @@ export async function persistBuyerProfile(profile: {
     available_capital: capital,
     timeline_to_acquire: profile.timeline || null,
   };
-  await supabase.from("buyer_profiles").delete().eq("buyer_id", userId);
-  const { error } = await supabase.from("buyer_profiles").insert(payload);
+  const { error } = await supabase
+    .from("buyer_profiles")
+    .upsert(payload, { onConflict: "buyer_id" });
   if (error) throw new Error(error.message);
+
 }
 
 function parseCurrency(input: string): number | null {
@@ -299,17 +314,21 @@ export async function submitNdaRequest(input: {
 }): Promise<void> {
   const userId = await currentUserId();
   if (!userId) throw new Error("Please sign in to request access.");
-  const { error } = await supabase.from("nda_requests").insert({
-    teaser_id: input.teaserId,
-    business_id: input.businessId,
-    buyer_id: userId,
-    buyer_name: input.buyerName,
-    buyer_email: input.buyerEmail,
-    signature_text: input.signature,
-    confidentiality_accepted: true,
-    status: "submitted",
-  });
+  const { error } = await supabase.from("nda_requests").upsert(
+    {
+      teaser_id: input.teaserId,
+      business_id: input.businessId,
+      buyer_id: userId,
+      buyer_name: input.buyerName,
+      buyer_email: input.buyerEmail,
+      signature_text: input.signature,
+      confidentiality_accepted: true,
+      status: "submitted",
+    },
+    { onConflict: "buyer_id,teaser_id", ignoreDuplicates: false },
+  );
   if (error) throw new Error(error.message);
+
 }
 
 export interface StoredNdaRequest {

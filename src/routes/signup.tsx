@@ -20,6 +20,30 @@ function SignupPage() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("seller");
   const [loading, setLoading] = useState(false);
+  const [confirmSent, setConfirmSent] = useState<string | null>(null);
+
+  if (confirmSent) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-12">
+        <div className="w-full max-w-md">
+          <div className="mb-8 flex justify-center"><Logo /></div>
+          <div className="rounded-2xl border border-border bg-card p-8 shadow-elegant">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Check your email</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              We sent a confirmation link to <span className="font-medium text-foreground">{confirmSent}</span>.
+              Confirm your address, then sign in to continue.
+            </p>
+            <div className="mt-6 flex gap-2">
+              <Button onClick={() => navigate({ to: "/login" })} className="bg-navy text-navy-foreground hover:bg-navy/90 dark:bg-gold dark:text-gold-foreground dark:hover:bg-gold/90">
+                Go to sign in
+              </Button>
+              <Button variant="outline" onClick={() => setConfirmSent(null)}>Use a different email</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-12">
@@ -34,9 +58,13 @@ function SignupPage() {
               e.preventDefault();
               setLoading(true);
               try {
-                const user = await signUp(email.trim(), password, role, fullName.trim() || undefined);
-                toast.success("Account created");
-                navigate({ to: user.role === "buyer" ? "/buyer" : "/seller" });
+                const { user, needsEmailConfirmation } = await signUp(email.trim(), password, role, fullName.trim() || undefined);
+                if (needsEmailConfirmation) {
+                  setConfirmSent(email.trim());
+                } else {
+                  toast.success("Account created");
+                  navigate({ to: user.role === "buyer" ? "/buyer" : "/seller" });
+                }
               } catch (err) {
                 toast.error((err as Error).message);
               } finally {
@@ -44,6 +72,7 @@ function SignupPage() {
               }
             }}
           >
+
             <div className="space-y-1.5">
               <Label htmlFor="fullName">Full name</Label>
               <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Doe" />
