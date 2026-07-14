@@ -1,18 +1,7 @@
 import { Building2, MapPin, ShieldCheck, TrendingUp, Users } from "lucide-react";
 import type { Business, Valuation } from "@/lib/store";
-import { fmtCurrency, INDUSTRIES } from "@/lib/valuation";
+import { fmtCurrency, INDUSTRIES, regionForState } from "@/lib/valuation";
 
-const REGIONS: Record<string, string> = {
-  CA: "West Coast", OR: "West Coast", WA: "West Coast",
-  TX: "Southwest", AZ: "Southwest", NM: "Southwest", NV: "Southwest",
-  NY: "Northeast", NJ: "Northeast", CT: "Northeast", MA: "Northeast", PA: "Northeast",
-  FL: "Southeast", GA: "Southeast", NC: "Southeast", SC: "Southeast",
-  IL: "Midwest", OH: "Midwest", MI: "Midwest", IN: "Midwest", WI: "Midwest",
-};
-
-export function regionForState(state: string) {
-  return REGIONS[state?.toUpperCase()] ?? "United States";
-}
 
 interface Props {
   business: Business;

@@ -15,6 +15,7 @@ export const Route = createFileRoute("/signup")({
 
 function SignupPage() {
   const navigate = useNavigate();
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("seller");
@@ -29,11 +30,11 @@ function SignupPage() {
           <p className="mt-1 text-sm text-muted-foreground">Confidential by default. No public listing.</p>
           <form
             className="mt-6 space-y-4"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               setLoading(true);
               try {
-                const user = signUp(email.trim(), password, role);
+                const user = await signUp(email.trim(), password, role, fullName.trim() || undefined);
                 toast.success("Account created");
                 navigate({ to: user.role === "buyer" ? "/buyer" : "/seller" });
               } catch (err) {
@@ -43,6 +44,10 @@ function SignupPage() {
               }
             }}
           >
+            <div className="space-y-1.5">
+              <Label htmlFor="fullName">Full name</Label>
+              <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Doe" />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -75,3 +80,4 @@ function SignupPage() {
     </div>
   );
 }
+

@@ -27,11 +27,11 @@ function LoginPage() {
           <p className="mt-1 text-sm text-muted-foreground">Sign in to your ExitBridge workspace.</p>
           <form
             className="mt-6 space-y-4"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               setLoading(true);
               try {
-                const user = signIn(email.trim(), password);
+                const user = await signIn(email.trim(), password);
                 toast.success("Signed in");
                 navigate({ to: user.role === "buyer" ? "/buyer" : "/seller" });
               } catch (err) {
@@ -59,7 +59,7 @@ function LoginPage() {
           </div>
         </div>
         <div className="mt-6 text-center text-xs text-muted-foreground">
-          Demo authentication — accounts are stored locally on this device.
+          Demo review? Use <span className="font-mono">seller@exitbridge.demo</span> or <span className="font-mono">buyer@exitbridge.demo</span> with password <span className="font-mono">Demo123!</span>.
         </div>
       </div>
     </div>
