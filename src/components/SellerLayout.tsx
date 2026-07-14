@@ -13,6 +13,7 @@ import { Logo } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { signOut, useAppState } from "@/lib/store";
+import { supabase } from "@/integrations/supabase/client";
 
 type SellerPath = "/seller" | "/seller/valuation" | "/seller/teaser" | "/seller/buyer-interest" | "/seller/account";
 const NAV: { to: SellerPath; label: string; icon: typeof LayoutDashboard; exact?: boolean }[] = [
@@ -29,13 +30,18 @@ export function SellerLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user === null) {
-      // give the store a beat to hydrate
-      const t = setTimeout(() => {
-        if (useAppStateSnapshot()?.user == null) navigate({ to: "/login" });
-      }, 100);
-      return () => clearTimeout(t);
-    }
+    if (user !== null) return;
+    let cancelled = false;
+    (async () => {
+      // Wait a beat for local hydration + auth session check.
+      await new Promise((r) => setTimeout(r, 300));
+      if (cancelled) return;
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) navigate({ to: "/login" });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [user, navigate]);
 
   return (
