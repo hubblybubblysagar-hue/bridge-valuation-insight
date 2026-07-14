@@ -13,6 +13,9 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { ThemeProvider } from "@/lib/theme";
 import { Toaster } from "@/components/ui/sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { hydrateSessionUser, getState, setState } from "@/lib/store";
+import { hydrateSellerWorkspace } from "@/lib/persist";
 
 function NotFoundComponent() {
   return (
@@ -132,6 +135,44 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    hydrateSessionUser().then(() => {
+      const u = getState().user;
+      if (u && !u.id.startsWith("demo-") && u.role === "seller") {
+        hydrateSellerWorkspace().catch(() => {});
+      }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED") {
+        hydrateSessionUser().then(() => {
+          const u = getState().user;
+          if (u && !u.id.startsWith("demo-") && u.role === "seller") {
+            hydrateSellerWorkspace().catch(() => {});
+          }
+        });
+      } else if (event === "SIGNED_OUT") {
+        setState({
+          user: null,
+          business: null,
+          financials: null,
+          risk: null,
+          valuation: null,
+          teaserApproved: false,
+          outreachApproved: false,
+          currentBusinessId: null,
+          currentFinancialsId: null,
+          currentValuationId: null,
+          currentTeaserId: null,
+          qbConnected: false,
+          ndaRequests: [],
+        });
+      }
+    });
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

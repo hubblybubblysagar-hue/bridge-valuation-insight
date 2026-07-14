@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, ShieldCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 import { SellerLayout } from "@/components/SellerLayout";
 import { Button } from "@/components/ui/button";
 import { setState, useAppState } from "@/lib/store";
+import { approveBuyerInterestTest, loadSellerNdaRequests, type StoredNdaRequest } from "@/lib/persist";
 
 export const Route = createFileRoute("/seller/buyer-interest")({
   head: () => ({ meta: [{ title: "Buyer interest — ExitBridge" }] }),
@@ -23,6 +24,11 @@ export function BuyerInterestPage() {
   const approved = useAppState((s) => s.outreachApproved);
   const valuation = useAppState((s) => s.valuation);
   const [confirming, setConfirming] = useState(false);
+  const [ndas, setNdas] = useState<StoredNdaRequest[]>([]);
+
+  useEffect(() => {
+    loadSellerNdaRequests().then(setNdas).catch(() => {});
+  }, [approved]);
 
   return (
     <SellerLayout>
@@ -47,6 +53,24 @@ export function BuyerInterestPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-3">
+          {ndas.length > 0 && (
+            <div className="rounded-xl border border-gold/40 bg-card p-5 shadow-premium">
+              <div className="text-xs font-semibold uppercase tracking-widest text-gold">
+                NDA requests received ({ndas.length})
+              </div>
+              <ul className="mt-3 divide-y divide-border">
+                {ndas.map((n) => (
+                  <li key={n.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{n.buyer_name ?? "Buyer"}</div>
+                      <div className="text-xs text-muted-foreground">{n.buyer_email} · {new Date(n.submitted_at).toLocaleDateString()}</div>
+                    </div>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium capitalize text-muted-foreground">{n.status.replace("_", " ")}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {CATEGORIES.map((c) => (
             <div key={c.name} className="flex items-center justify-between rounded-xl border border-border bg-card p-5 shadow-elegant">
               <div>
@@ -84,13 +108,17 @@ export function BuyerInterestPage() {
                 size="lg"
                 disabled={!valuation || confirming}
                 className="w-full bg-gold text-gold-foreground hover:bg-gold/90"
-                onClick={() => {
+                onClick={async () => {
                   setConfirming(true);
-                  setTimeout(() => {
+                  try {
+                    await approveBuyerInterestTest();
                     setState({ outreachApproved: true });
                     toast.success("Anonymous outreach approved");
+                  } catch (err) {
+                    toast.error((err as Error).message);
+                  } finally {
                     setConfirming(false);
-                  }, 800);
+                  }
                 }}
               >
                 <Users className="mr-2 h-4 w-4" /> Approve anonymous outreach

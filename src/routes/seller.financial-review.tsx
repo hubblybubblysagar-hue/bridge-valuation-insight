@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { setState, useAppState, type Financials } from "@/lib/store";
 import { computeSDE, fmtCurrency } from "@/lib/valuation";
+import { persistFinancials } from "@/lib/persist";
 
 export const Route = createFileRoute("/seller/financial-review")({
   head: () => ({ meta: [{ title: "Financial review — ExitBridge" }] }),
@@ -84,8 +85,9 @@ export function ReviewPage() {
           </p>
           <Button
             className="mt-6 w-full bg-gold text-gold-foreground hover:bg-gold/90"
-            onClick={() => {
+            onClick={async () => {
               setState({ financials: form });
+              try { await persistFinancials(form, "manual"); } catch (err) { toast.error((err as Error).message); return; }
               toast.success("Financials saved");
               navigate({ to: "/seller/risk" });
             }}

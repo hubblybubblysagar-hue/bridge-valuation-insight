@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setState, useAppState, type Business } from "@/lib/store";
 import { INDUSTRIES } from "@/lib/valuation";
+import { persistBusiness } from "@/lib/persist";
+import { toast as toastFn } from "sonner";
+void toastFn;
 
 export const Route = createFileRoute("/seller/business")({
   head: () => ({ meta: [{ title: "Business basics — ExitBridge" }] }),
@@ -43,9 +46,15 @@ function BusinessPage() {
 
       <form
         className="rounded-2xl border border-border bg-card p-8 shadow-elegant"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
           setState({ business: form });
+          try {
+            await persistBusiness(form);
+          } catch (err) {
+            toast.error((err as Error).message);
+            return;
+          }
           toast.success("Saved");
           navigate({ to: "/seller/financial-review" });
         }}

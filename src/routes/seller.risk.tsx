@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setState, useAppState, type RiskAnswers } from "@/lib/store";
 import { computeValuation } from "@/lib/valuation";
+import { persistRisk, persistValuation } from "@/lib/persist";
 
 export const Route = createFileRoute("/seller/risk")({
   head: () => ({ meta: [{ title: "Buyer risk questions — ExitBridge" }] }),
@@ -45,7 +46,7 @@ function RiskPage() {
 
       <form
         className="grid gap-5 rounded-2xl border border-border bg-card p-8 shadow-elegant sm:grid-cols-2"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
           if (!business || !financials) {
             toast.error("Complete earlier steps first.");
@@ -53,6 +54,13 @@ function RiskPage() {
           }
           const val = computeValuation(business.industry, financials, form);
           setState({ risk: form, valuation: val });
+          try {
+            await persistRisk(form);
+            await persistValuation(val);
+          } catch (err) {
+            toast.error((err as Error).message);
+            return;
+          }
           toast.success("Valuation generated");
           navigate({ to: "/seller/valuation" });
         }}

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { signUp } from "@/lib/store";
+import { persistBuyerProfile } from "@/lib/persist";
 
 export const Route = createFileRoute("/buyer-signup")({
   head: () => ({ meta: [{ title: "Buyer signup — ExitBridge" }] }),
@@ -40,11 +41,19 @@ function BuyerSignup() {
           </p>
           <form
             className="mt-6 grid gap-4 sm:grid-cols-2"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               try {
-                signUp(form.email.trim(), form.password || "buyer-demo", "buyer");
-                localStorage.setItem("exitbridge-buyer-profile", JSON.stringify(form));
+                await signUp(form.email.trim(), form.password || "buyer-demo", "buyer", form.name.trim() || undefined);
+                await persistBuyerProfile({
+                  buyerType: form.buyerType,
+                  industries: form.industries,
+                  geography: form.geography,
+                  revenueRange: form.revenueRange,
+                  sdeRange: form.sdeRange,
+                  capital: form.capital,
+                  timeline: form.timeline,
+                });
                 toast.success("Buyer account created");
                 navigate({ to: "/buyer" });
               } catch (err) {

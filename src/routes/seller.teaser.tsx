@@ -5,6 +5,7 @@ import { SellerLayout } from "@/components/SellerLayout";
 import { TeaserDocument } from "@/components/Teaser";
 import { Button } from "@/components/ui/button";
 import { setState, useAppState } from "@/lib/store";
+import { persistTeaser } from "@/lib/persist";
 
 export const Route = createFileRoute("/seller/teaser")({
   head: () => ({ meta: [{ title: "Anonymous teaser — ExitBridge" }] }),
@@ -56,8 +57,9 @@ export function TeaserPage() {
           </Button>
           <Button
             className="bg-gold text-gold-foreground hover:bg-gold/90"
-            onClick={() => {
+            onClick={async () => {
               setState({ teaserApproved: true });
+              try { await persistTeaser(business, valuation, financials.revenue); } catch (err) { toast.error((err as Error).message); return; }
               navigate({ to: "/seller/buyer-interest" });
             }}
           >

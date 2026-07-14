@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { SellerLayout } from "@/components/SellerLayout";
 import { Button } from "@/components/ui/button";
 import { setState, useAppState, type Financials } from "@/lib/store";
+import { persistFinancials } from "@/lib/persist";
 
 export const Route = createFileRoute("/seller/connect")({
   head: () => ({ meta: [{ title: "Connect QuickBooks — ExitBridge" }] }),
@@ -30,8 +31,13 @@ export function ConnectPage() {
 
   const connect = () => {
     setLoading(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       setState({ qbConnected: true, financials: MOCK });
+      try {
+        await persistFinancials(MOCK, "quickbooks_mock", { mock: true });
+      } catch (err) {
+        toast.error((err as Error).message);
+      }
       setLoading(false);
       toast.success("QuickBooks connected successfully");
       navigate({ to: "/seller/business" });
@@ -154,8 +160,9 @@ function UploadOrManual({ title, body }: { title: string; body: string }) {
       </div>
       <div className="mt-6">
         <Button
-          onClick={() => {
+          onClick={async () => {
             setState({ qbConnected: true, financials: MOCK });
+            try { await persistFinancials(MOCK, "upload", { sample: true }); } catch (err) { toast.error((err as Error).message); }
             toast.success("Using sample financials to continue");
             navigate({ to: "/seller/business" });
           }}

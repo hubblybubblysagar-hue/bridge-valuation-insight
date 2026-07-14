@@ -1,5 +1,17 @@
 import type { Financials, RiskAnswers, Valuation } from "./store";
 
+const REGIONS: Record<string, string> = {
+  CA: "West Coast", OR: "West Coast", WA: "West Coast",
+  TX: "Southwest", AZ: "Southwest", NM: "Southwest", NV: "Southwest",
+  NY: "Northeast", NJ: "Northeast", CT: "Northeast", MA: "Northeast", PA: "Northeast",
+  FL: "Southeast", GA: "Southeast", NC: "Southeast", SC: "Southeast",
+  IL: "Midwest", OH: "Midwest", MI: "Midwest", IN: "Midwest", WI: "Midwest",
+};
+
+export function regionForState(state: string) {
+  return REGIONS[(state ?? "").toUpperCase()] ?? "United States";
+}
+
 export const INDUSTRIES: { value: string; label: string; multiple: number }[] = [
   { value: "hvac", label: "HVAC", multiple: 3.2 },
   { value: "plumbing", label: "Plumbing", multiple: 3.1 },

@@ -5,6 +5,7 @@ import { Logo } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { signOut, useAppState } from "@/lib/store";
+import { supabase } from "@/integrations/supabase/client";
 
 type BuyerPath = "/buyer" | "/buyer/ndas" | "/buyer/account";
 const NAV: { to: BuyerPath; label: string; icon: typeof LayoutGrid; exact?: boolean }[] = [
@@ -19,14 +20,17 @@ export function BuyerLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user === null) {
-      const t = setTimeout(() => {
-        const raw = typeof localStorage !== "undefined" ? localStorage.getItem("exitbridge-state-v1") : null;
-        const parsed = raw ? JSON.parse(raw) : null;
-        if (!parsed?.user) navigate({ to: "/login" });
-      }, 100);
-      return () => clearTimeout(t);
-    }
+    if (user !== null) return;
+    let cancelled = false;
+    (async () => {
+      await new Promise((r) => setTimeout(r, 300));
+      if (cancelled) return;
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) navigate({ to: "/login" });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [user, navigate]);
 
   return (
