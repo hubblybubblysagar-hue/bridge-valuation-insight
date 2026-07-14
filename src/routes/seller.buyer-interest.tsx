@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, ShieldCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 import { SellerLayout } from "@/components/SellerLayout";
 import { Button } from "@/components/ui/button";
 import { setState, useAppState } from "@/lib/store";
+import { approveBuyerInterestTest, loadSellerNdaRequests, type StoredNdaRequest } from "@/lib/persist";
 
 export const Route = createFileRoute("/seller/buyer-interest")({
   head: () => ({ meta: [{ title: "Buyer interest — ExitBridge" }] }),
@@ -23,6 +24,11 @@ export function BuyerInterestPage() {
   const approved = useAppState((s) => s.outreachApproved);
   const valuation = useAppState((s) => s.valuation);
   const [confirming, setConfirming] = useState(false);
+  const [ndas, setNdas] = useState<StoredNdaRequest[]>([]);
+
+  useEffect(() => {
+    loadSellerNdaRequests().then(setNdas).catch(() => {});
+  }, [approved]);
 
   return (
     <SellerLayout>
@@ -84,13 +90,17 @@ export function BuyerInterestPage() {
                 size="lg"
                 disabled={!valuation || confirming}
                 className="w-full bg-gold text-gold-foreground hover:bg-gold/90"
-                onClick={() => {
+                onClick={async () => {
                   setConfirming(true);
-                  setTimeout(() => {
+                  try {
+                    await approveBuyerInterestTest();
                     setState({ outreachApproved: true });
                     toast.success("Anonymous outreach approved");
+                  } catch (err) {
+                    toast.error((err as Error).message);
+                  } finally {
                     setConfirming(false);
-                  }, 800);
+                  }
                 }}
               >
                 <Users className="mr-2 h-4 w-4" /> Approve anonymous outreach
