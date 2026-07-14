@@ -180,7 +180,7 @@ function QaBackendPage() {
               size="sm"
               onClick={() =>
                 run("persistValuation", async () => {
-                  const val = computeValuation(DEMO_FINANCIALS, DEMO_BUSINESS, DEMO_RISK) ?? DEMO_VALUATION;
+                  const val = computeValuation(DEMO_BUSINESS.industry, DEMO_FINANCIALS, DEMO_RISK) ?? DEMO_VALUATION;
                   return persistValuation(val);
                 })
               }
