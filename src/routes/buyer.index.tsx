@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { BuyerLayout } from "@/components/BuyerLayout";
@@ -8,47 +8,66 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { setState, useAppState, type AppState } from "@/lib/store";
+import { useAppState } from "@/lib/store";
+import { loadApprovedTeasers, submitNdaRequest, type ApprovedTeaser } from "@/lib/persist";
+import { INDUSTRIES } from "@/lib/valuation";
 
 export const Route = createFileRoute("/buyer/")({
   head: () => ({ meta: [{ title: "Deal feed — ExitBridge" }] }),
   component: BuyerFeed,
 });
 
-const DEALS = [
-  {
-    id: "d1",
-    title: "Home Services Company — Northeast",
-    industry: "HVAC / Plumbing",
-    region: "Northeast",
-    revenue: "$2.6M – $3.1M",
-    sde: "$540K – $660K",
-    status: "Exploratory",
-  },
-  {
-    id: "d2",
-    title: "Profitable E-commerce Brand — Southwest",
-    industry: "E-commerce",
-    region: "Southwest",
-    revenue: "$4.1M – $4.8M",
-    sde: "$720K – $860K",
-    status: "Exploratory",
-  },
-  {
-    id: "d3",
-    title: "B2B SaaS Business — Remote",
-    industry: "SaaS",
-    region: "Remote",
-    revenue: "$1.8M – $2.2M",
-    sde: "$450K – $560K",
-    status: "Exploratory",
-  },
+interface Deal {
+  id: string;
+  business_id: string | null;
+  title: string;
+  industry: string;
+  region: string;
+  revenue: string;
+  sde: string;
+  status: string;
+}
+
+const FALLBACK_DEALS: Deal[] = [
+  { id: "d1", business_id: null, title: "Home Services Company — Northeast", industry: "HVAC / Plumbing", region: "Northeast", revenue: "$2.6M – $3.1M", sde: "$540K – $660K", status: "Exploratory" },
+  { id: "d2", business_id: null, title: "Profitable E-commerce Brand — Southwest", industry: "E-commerce", region: "Southwest", revenue: "$4.1M – $4.8M", sde: "$720K – $860K", status: "Exploratory" },
+  { id: "d3", business_id: null, title: "B2B SaaS Business — Remote", industry: "SaaS", region: "Remote", revenue: "$1.8M – $2.2M", sde: "$450K – $560K", status: "Exploratory" },
 ];
+
+function teaserToDeal(t: ApprovedTeaser): Deal {
+  const snap = (t.financial_snapshot ?? {}) as { revenue_range?: string; sde_range?: string; region?: string };
+  const industryLabel = INDUSTRIES.find((i) => i.value === t.industry)?.label ?? t.industry ?? "Business";
+  return {
+    id: t.id,
+    business_id: t.business_id,
+    title: t.title ?? industryLabel,
+    industry: industryLabel,
+    region: snap.region ?? t.region ?? "—",
+    revenue: snap.revenue_range ?? "—",
+    sde: snap.sde_range ?? "—",
+    status: "Exploratory",
+  };
+}
 
 export function BuyerFeed() {
   const user = useAppState((s) => s.user);
-  const ndas = useAppState((s) => s.ndaRequests);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [submitted, setSubmitted] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
+  const isDemo = user?.id?.startsWith("demo-");
+
+  useEffect(() => {
+    if (isDemo) {
+      setDeals(FALLBACK_DEALS);
+      return;
+    }
+    loadApprovedTeasers()
+      .then((teasers) => {
+        const mapped = teasers.map(teaserToDeal);
+        setDeals(mapped.length ? mapped : FALLBACK_DEALS);
+      })
+      .catch(() => setDeals(FALLBACK_DEALS));
+  }, [isDemo]);
 
   return (
     <BuyerLayout>
@@ -62,8 +81,8 @@ export function BuyerFeed() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {DEALS.map((d) => {
-          const already = ndas.some((n) => n.dealTitle === d.title);
+        {deals.map((d) => {
+          const already = submitted.has(d.id);
           return (
             <div key={d.id} className="flex flex-col rounded-2xl border border-border bg-card p-6 shadow-elegant">
               <div className="text-xs font-semibold uppercase tracking-widest text-gold">Anonymous</div>
@@ -93,9 +112,11 @@ export function BuyerFeed() {
       </div>
 
       <NDADialog
-        deal={DEALS.find((d) => d.id === open) ?? null}
+        deal={deals.find((d) => d.id === open) ?? null}
         onClose={() => setOpen(null)}
+        onSubmitted={(id) => setSubmitted((prev) => new Set(prev).add(id))}
         defaultEmail={user?.email ?? ""}
+        isDemo={!!isDemo}
       />
     </BuyerLayout>
   );
@@ -113,16 +134,21 @@ function Meta({ k, v }: { k: string; v: string }) {
 function NDADialog({
   deal,
   onClose,
+  onSubmitted,
   defaultEmail,
+  isDemo,
 }: {
-  deal: { id: string; title: string } | null;
+  deal: Deal | null;
   onClose: () => void;
+  onSubmitted: (id: string) => void;
   defaultEmail: string;
+  isDemo: boolean;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState(defaultEmail);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   return (
     <Dialog open={!!deal} onOpenChange={(o) => (!o ? onClose() : null)}>
@@ -133,21 +159,30 @@ function NDADialog({
         {deal && (
           <form
             className="space-y-4"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               if (!agreed) return toast.error("Please confirm confidentiality.");
               if (!signature.trim()) return toast.error("Please type your signature.");
-              const req: AppState["ndaRequests"][number] = {
-                id: crypto.randomUUID(),
-                dealTitle: deal.title,
-                buyerName: name,
-                email,
-                submittedAt: new Date().toISOString(),
-              };
-              setState((s) => ({ ndaRequests: [req, ...s.ndaRequests] }));
-              toast.success("Your NDA request has been submitted.");
-              onClose();
-              setName(""); setSignature(""); setAgreed(false);
+              setSubmitting(true);
+              try {
+                if (!isDemo && deal.id.length > 20) {
+                  await submitNdaRequest({
+                    teaserId: deal.id,
+                    businessId: deal.business_id,
+                    buyerName: name,
+                    buyerEmail: email,
+                    signature,
+                  });
+                }
+                onSubmitted(deal.id);
+                toast.success("Your NDA request has been submitted. ExitBridge will notify the seller and coordinate next steps.");
+                onClose();
+                setName(""); setSignature(""); setAgreed(false);
+              } catch (err) {
+                toast.error((err as Error).message);
+              } finally {
+                setSubmitting(false);
+              }
             }}
           >
             <div className="text-sm text-muted-foreground">Opportunity: <span className="font-medium text-foreground">{deal.title}</span></div>
@@ -171,10 +206,12 @@ function NDADialog({
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="submit" className="bg-gold text-gold-foreground hover:bg-gold/90">Request Access</Button>
+              <Button type="submit" disabled={submitting} className="bg-gold text-gold-foreground hover:bg-gold/90">
+                {submitting ? "Submitting…" : "Request Access"}
+              </Button>
             </DialogFooter>
             <p className="text-[11px] text-muted-foreground">
-              CIM access is coming soon. ExitBridge will notify the seller and coordinate next steps.
+              ExitBridge will notify the seller and coordinate next steps.
             </p>
           </form>
         )}
