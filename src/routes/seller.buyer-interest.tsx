@@ -53,6 +53,24 @@ export function BuyerInterestPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-3">
+          {ndas.length > 0 && (
+            <div className="rounded-xl border border-gold/40 bg-card p-5 shadow-premium">
+              <div className="text-xs font-semibold uppercase tracking-widest text-gold">
+                NDA requests received ({ndas.length})
+              </div>
+              <ul className="mt-3 divide-y divide-border">
+                {ndas.map((n) => (
+                  <li key={n.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{n.buyer_name ?? "Buyer"}</div>
+                      <div className="text-xs text-muted-foreground">{n.buyer_email} · {new Date(n.submitted_at).toLocaleDateString()}</div>
+                    </div>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium capitalize text-muted-foreground">{n.status.replace("_", " ")}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {CATEGORIES.map((c) => (
             <div key={c.name} className="flex items-center justify-between rounded-xl border border-border bg-card p-5 shadow-elegant">
               <div>
