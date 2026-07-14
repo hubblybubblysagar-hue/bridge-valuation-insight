@@ -114,7 +114,7 @@ export type Database = {
           {
             foreignKeyName: "buyer_interest_tests_business_id_fkey"
             columns: ["business_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "businesses"
             referencedColumns: ["id"]
           },
@@ -187,7 +187,7 @@ export type Database = {
           {
             foreignKeyName: "buyer_profiles_buyer_id_fkey"
             columns: ["buyer_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -392,7 +392,7 @@ export type Database = {
           {
             foreignKeyName: "risk_answers_business_id_fkey"
             columns: ["business_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "businesses"
             referencedColumns: ["id"]
           },
@@ -522,7 +522,7 @@ export type Database = {
           {
             foreignKeyName: "teasers_business_id_fkey"
             columns: ["business_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "businesses"
             referencedColumns: ["id"]
           },
@@ -603,7 +603,7 @@ export type Database = {
           {
             foreignKeyName: "valuations_business_id_fkey"
             columns: ["business_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "businesses"
             referencedColumns: ["id"]
           },
