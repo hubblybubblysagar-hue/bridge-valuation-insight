@@ -1,6 +1,7 @@
-// Local-storage backed reactive store. Structured so a Supabase backend
-// can slot in later without changing components.
+// Local UI cache + Supabase-backed auth for ExitBridge.
+// Demo/QA routes call seedDemoStage() and remain local-only (no DB writes).
 import { useEffect, useSyncExternalStore } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export type Role = "seller" | "buyer";
 
@@ -8,6 +9,7 @@ export interface User {
   id: string;
   email: string;
   role: Role;
+  fullName?: string | null;
 }
 
 export interface Financials {
@@ -66,6 +68,10 @@ export interface AppState {
   valuation: Valuation | null;
   teaserApproved: boolean;
   outreachApproved: boolean;
+  currentBusinessId: string | null;
+  currentFinancialsId: string | null;
+  currentValuationId: string | null;
+  currentTeaserId: string | null;
   ndaRequests: Array<{
     id: string;
     dealTitle: string;
@@ -75,7 +81,7 @@ export interface AppState {
   }>;
 }
 
-const STORAGE_KEY = "exitbridge-state-v1";
+const STORAGE_KEY = "exitbridge-state-v2";
 
 const defaultState: AppState = {
   user: null,
@@ -86,6 +92,10 @@ const defaultState: AppState = {
   valuation: null,
   teaserApproved: false,
   outreachApproved: false,
+  currentBusinessId: null,
+  currentFinancialsId: null,
+  currentValuationId: null,
+  currentTeaserId: null,
   ndaRequests: [],
 };
 
@@ -112,11 +122,6 @@ function ensureHydrated() {
   if (hydrated || typeof window === "undefined") return;
   load();
   hydrated = true;
-  try {
-    ensureDemoAccounts();
-  } catch {
-    /* noop */
-  }
   listeners.forEach((l) => l());
 }
 
@@ -145,49 +150,108 @@ export function useAppState<T>(selector: (s: AppState) => T): T {
   );
 }
 
-// --- Auth helpers (localStorage only for MVP) ---
-interface StoredAccount {
-  email: string;
-  password: string;
-  role: Role;
-}
-const ACCOUNTS_KEY = "exitbridge-accounts-v1";
+// ---------------- Auth (Supabase) ----------------
 
-function loadAccounts(): StoredAccount[] {
-  if (typeof localStorage === "undefined") return [];
+async function loadProfile(userId: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, email, role, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    email: data.email,
+    role: (data.role as Role) ?? "seller",
+    fullName: data.full_name,
+  };
+}
+
+export async function signUp(
+  email: string,
+  password: string,
+  role: Role,
+  fullName?: string,
+): Promise<User> {
+  const emailRedirectTo =
+    typeof window !== "undefined" ? window.location.origin : undefined;
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo,
+      data: { role, full_name: fullName ?? null },
+    },
+  });
+  if (error) throw new Error(error.message);
+  const authUser = data.user;
+  if (!authUser) throw new Error("Signup failed — please try again.");
+
+  const { error: insertError } = await supabase.from("profiles").insert({
+    id: authUser.id,
+    email,
+    role,
+    full_name: fullName ?? null,
+  });
+  // Ignore duplicate profile errors (e.g. reconfirmation).
+  if (insertError && !/duplicate/i.test(insertError.message)) {
+    throw new Error(insertError.message);
+  }
+
+  const user: User = { id: authUser.id, email, role, fullName: fullName ?? null };
+  setState({ ...defaultState, user });
+  return user;
+}
+
+export async function signIn(email: string, password: string): Promise<User> {
+  // Local demo bypass — keeps QA/demo review paths working with no real backend account.
+  if (
+    (email === DEMO_SELLER_EMAIL || email === DEMO_BUYER_EMAIL) &&
+    password === DEMO_PASSWORD
+  ) {
+    const role: Role = email === DEMO_BUYER_EMAIL ? "buyer" : "seller";
+    const user: User = { id: `demo-${role}`, email, role };
+    setState({ ...defaultState, user });
+    return user;
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(error.message);
+  if (!data.user) throw new Error("Invalid email or password.");
+  const profile = (await loadProfile(data.user.id)) ?? {
+    id: data.user.id,
+    email: data.user.email ?? email,
+    role: "seller" as Role,
+  };
+  setState({ ...defaultState, user: profile });
+  return profile;
+}
+
+export async function signOut() {
   try {
-    return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]");
+    await supabase.auth.signOut();
   } catch {
-    return [];
+    /* noop */
   }
-}
-function saveAccounts(a: StoredAccount[]) {
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(a));
+  setState({ ...defaultState });
 }
 
-export function signUp(email: string, password: string, role: Role): User {
-  const accounts = loadAccounts();
-  if (accounts.some((a) => a.email === email)) {
-    throw new Error("An account with that email already exists.");
+/** Called from __root on auth state change — rehydrate user for real sessions. */
+export async function hydrateSessionUser() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const authUser = data.session?.user;
+    if (!authUser) {
+      if (state.user && !state.user.id.startsWith("demo-")) {
+        setState({ ...defaultState });
+      }
+      return;
+    }
+    const profile = await loadProfile(authUser.id);
+    if (profile) setState({ user: profile });
+  } catch {
+    /* noop */
   }
-  accounts.push({ email, password, role });
-  saveAccounts(accounts);
-  const user: User = { id: crypto.randomUUID(), email, role };
-  setState({ user });
-  return user;
-}
-
-export function signIn(email: string, password: string): User {
-  const accounts = loadAccounts();
-  const found = accounts.find((a) => a.email === email && a.password === password);
-  if (!found) throw new Error("Invalid email or password.");
-  const user: User = { id: crypto.randomUUID(), email, role: found.role };
-  setState({ user });
-  return user;
-}
-
-export function signOut() {
-  setState({ user: null });
 }
 
 // ---------------- QA / Demo seed ----------------
@@ -312,18 +376,9 @@ export const DEMO_NDA_REQUEST = {
   submittedAt: new Date().toISOString(),
 };
 
+/** No-op on Supabase (demo login uses the in-app bypass in signIn). */
 export function ensureDemoAccounts() {
-  if (typeof localStorage === "undefined") return;
-  const accounts = loadAccounts();
-  const upsert = (email: string, role: Role) => {
-    const idx = accounts.findIndex((a) => a.email === email);
-    const entry: StoredAccount = { email, password: DEMO_PASSWORD, role };
-    if (idx >= 0) accounts[idx] = entry;
-    else accounts.push(entry);
-  };
-  upsert(DEMO_SELLER_EMAIL, "seller");
-  upsert(DEMO_BUYER_EMAIL, "buyer");
-  saveAccounts(accounts);
+  /* no-op */
 }
 
 export type DemoStage =
@@ -338,7 +393,6 @@ export type DemoStage =
 
 export function seedDemoStage(stage: DemoStage) {
   ensureHydrated();
-  ensureDemoAccounts();
 
   const isBuyer = stage.startsWith("buyer");
   const user: User = isBuyer
@@ -346,15 +400,8 @@ export function seedDemoStage(stage: DemoStage) {
     : { id: "demo-seller", email: DEMO_SELLER_EMAIL, role: "seller" };
 
   const base: Partial<AppState> = {
+    ...defaultState,
     user,
-    business: null,
-    financials: null,
-    risk: null,
-    valuation: null,
-    qbConnected: false,
-    teaserApproved: false,
-    outreachApproved: false,
-    ndaRequests: [],
   };
 
   switch (stage) {
@@ -397,11 +444,10 @@ export function seedDemoStage(stage: DemoStage) {
       });
       return;
     case "buyer-feed":
-      setState({ ...base, user });
+      setState(base);
       return;
     case "buyer-nda-request":
-      setState({ ...base, user, ndaRequests: [DEMO_NDA_REQUEST] });
+      setState({ ...base, ndaRequests: [DEMO_NDA_REQUEST] });
       return;
   }
 }
-
