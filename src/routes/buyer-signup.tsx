@@ -44,7 +44,12 @@ function BuyerSignup() {
             onSubmit={async (e) => {
               e.preventDefault();
               try {
-                await signUp(form.email.trim(), form.password || "buyer-demo", "buyer", form.name.trim() || undefined);
+                const { needsEmailConfirmation } = await signUp(form.email.trim(), form.password || "buyer-demo", "buyer", form.name.trim() || undefined);
+                if (needsEmailConfirmation) {
+                  toast.success("Check your email to confirm your account, then sign in to finish your profile.");
+                  navigate({ to: "/login" });
+                  return;
+                }
                 await persistBuyerProfile({
                   buyerType: form.buyerType,
                   industries: form.industries,
@@ -56,6 +61,7 @@ function BuyerSignup() {
                 });
                 toast.success("Buyer account created");
                 navigate({ to: "/buyer" });
+
               } catch (err) {
                 toast.error((err as Error).message);
               }
