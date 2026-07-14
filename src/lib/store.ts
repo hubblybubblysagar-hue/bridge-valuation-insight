@@ -172,7 +172,7 @@ export async function signUp(
   password: string,
   role: Role,
   fullName?: string,
-): Promise<User> {
+): Promise<{ user: User; needsEmailConfirmation: boolean }> {
   const emailRedirectTo =
     typeof window !== "undefined" ? window.location.origin : undefined;
   const { data, error } = await supabase.auth.signUp({
@@ -187,21 +187,26 @@ export async function signUp(
   const authUser = data.user;
   if (!authUser) throw new Error("Signup failed — please try again.");
 
-  const { error: insertError } = await supabase.from("profiles").insert({
-    id: authUser.id,
-    email,
-    role,
-    full_name: fullName ?? null,
-  });
-  // Ignore duplicate profile errors (e.g. reconfirmation).
-  if (insertError && !/duplicate/i.test(insertError.message)) {
-    throw new Error(insertError.message);
+  const needsEmailConfirmation = !data.session;
+
+  // Insert profile row when we have a session; without one the insert fails RLS.
+  if (data.session) {
+    const { error: insertError } = await supabase.from("profiles").insert({
+      id: authUser.id,
+      email,
+      role,
+      full_name: fullName ?? null,
+    });
+    if (insertError && !/duplicate/i.test(insertError.message)) {
+      throw new Error(insertError.message);
+    }
   }
 
   const user: User = { id: authUser.id, email, role, fullName: fullName ?? null };
-  setState({ ...defaultState, user });
-  return user;
+  if (data.session) setState({ ...defaultState, user });
+  return { user, needsEmailConfirmation };
 }
+
 
 export async function signIn(email: string, password: string): Promise<User> {
   // Local demo bypass — keeps QA/demo review paths working with no real backend account.
