@@ -62,11 +62,8 @@ export function BuyerFeed() {
       return;
     }
     loadApprovedTeasers()
-      .then((teasers) => {
-        const mapped = teasers.map(teaserToDeal);
-        setDeals(mapped.length ? mapped : FALLBACK_DEALS);
-      })
-      .catch(() => setDeals(FALLBACK_DEALS));
+      .then((teasers) => setDeals(teasers.map(teaserToDeal)))
+      .catch(() => setDeals([]));
   }, [isDemo]);
 
   return (
@@ -80,36 +77,47 @@ export function BuyerFeed() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {deals.map((d) => {
-          const already = submitted.has(d.id);
-          return (
-            <div key={d.id} className="flex flex-col rounded-2xl border border-border bg-card p-6 shadow-elegant">
-              <div className="text-xs font-semibold uppercase tracking-widest text-gold">Anonymous</div>
-              <h3 className="mt-1 text-lg font-semibold text-foreground">{d.title}</h3>
-              <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
-                <Meta k="Industry" v={d.industry} />
-                <Meta k="Region" v={d.region} />
-                <Meta k="Revenue" v={d.revenue} />
-                <Meta k="Adjusted SDE" v={d.sde} />
-              </dl>
-              <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground">
-                Status: {d.status}
-              </div>
-              <div className="mt-6 flex-1" />
-              {already ? (
-                <div className="inline-flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-medium text-success">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> NDA request submitted
+      {deals.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center shadow-elegant">
+          <div className="text-xs font-semibold uppercase tracking-widest text-gold">No opportunities yet</div>
+          <h3 className="mt-2 text-lg font-semibold text-foreground">Your matched deal feed is empty</h3>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+            When a seller approves an anonymous teaser that matches your acquisition criteria,
+            it will appear here. You'll be notified as new opportunities are added.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {deals.map((d) => {
+            const already = submitted.has(d.id);
+            return (
+              <div key={d.id} className="flex flex-col rounded-2xl border border-border bg-card p-6 shadow-elegant">
+                <div className="text-xs font-semibold uppercase tracking-widest text-gold">Anonymous</div>
+                <h3 className="mt-1 text-lg font-semibold text-foreground">{d.title}</h3>
+                <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                  <Meta k="Industry" v={d.industry} />
+                  <Meta k="Region" v={d.region} />
+                  <Meta k="Revenue" v={d.revenue} />
+                  <Meta k="Adjusted SDE" v={d.sde} />
+                </dl>
+                <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                  Status: {d.status}
                 </div>
-              ) : (
-                <Button onClick={() => setOpen(d.id)} className="bg-navy text-navy-foreground hover:bg-navy/90 dark:bg-gold dark:text-gold-foreground">
-                  Request NDA Access
-                </Button>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                <div className="mt-6 flex-1" />
+                {already ? (
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-medium text-success">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> NDA request submitted
+                  </div>
+                ) : (
+                  <Button onClick={() => setOpen(d.id)} className="bg-navy text-navy-foreground hover:bg-navy/90 dark:bg-gold dark:text-gold-foreground">
+                    Request NDA Access
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <NDADialog
         deal={deals.find((d) => d.id === open) ?? null}

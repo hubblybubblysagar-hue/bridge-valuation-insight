@@ -202,6 +202,25 @@ Supabase calls. Must stay this way.
 
 ## 11. Change Log
 
+- **2026-07-18 — Phase A hardening + QuickBooks schema scaffolding**
+  - Added DB trigger `public.handle_new_auth_user()` on `auth.users` that
+    creates the `profiles` row from signup metadata. Removed the client-side
+    profile insert in `signUp()` (was RLS-blocked when email confirmation
+    delayed the session). Backfilled missing profiles for existing users.
+  - Teaser transition sentence now uses natural, reason-conditional
+    language (`src/lib/teaser-snapshot.ts`).
+  - Buyer feed (`src/routes/buyer.index.tsx`) no longer falls back to mock
+    deals for real buyers; renders an empty state instead. Demo user still
+    sees `FALLBACK_DEALS`.
+  - New QuickBooks tables (metadata only — no OAuth tokens stored yet):
+    `quickbooks_connections` (seller-readable), `quickbooks_oauth_states`
+    (server-only, no anon/authenticated grants), and
+    `quickbooks_report_snapshots` (owner-readable via `owns_business`).
+  - Follow-ups (Phase B, pending Intuit sandbox credentials): edge functions
+    `quickbooks-auth-start`, `quickbooks-auth-callback`,
+    `quickbooks-sync-reports`; token storage via Supabase Vault; wire
+    `/seller/connect` to real Intuit sandbox OAuth.
+
 - **2026-07-14 — Backend QA + hardening pass**
   - Added unique constraints: `buyer_profiles.buyer_id`,
     `risk_answers.business_id`, `valuations.business_id`,

@@ -348,6 +348,180 @@ export type Database = {
         }
         Relationships: []
       }
+      quickbooks_connections: {
+        Row: {
+          access_token_expires_at: string | null
+          business_id: string | null
+          company_name: string | null
+          connected_at: string | null
+          created_at: string
+          environment: string
+          id: string
+          last_error: string | null
+          last_synced_at: string | null
+          realm_id: string
+          refresh_token_expires_at: string | null
+          scope: string | null
+          seller_id: string
+          status: string
+          token_secret_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token_expires_at?: string | null
+          business_id?: string | null
+          company_name?: string | null
+          connected_at?: string | null
+          created_at?: string
+          environment?: string
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          realm_id: string
+          refresh_token_expires_at?: string | null
+          scope?: string | null
+          seller_id: string
+          status?: string
+          token_secret_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token_expires_at?: string | null
+          business_id?: string | null
+          company_name?: string | null
+          connected_at?: string | null
+          created_at?: string
+          environment?: string
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          realm_id?: string
+          refresh_token_expires_at?: string | null
+          scope?: string | null
+          seller_id?: string
+          status?: string
+          token_secret_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quickbooks_connections_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quickbooks_connections_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quickbooks_oauth_states: {
+        Row: {
+          business_id: string | null
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          seller_id: string
+          state_hash: string
+        }
+        Insert: {
+          business_id?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          seller_id: string
+          state_hash: string
+        }
+        Update: {
+          business_id?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          seller_id?: string
+          state_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quickbooks_oauth_states_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quickbooks_oauth_states_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quickbooks_report_snapshots: {
+        Row: {
+          accounting_method: string | null
+          business_id: string
+          connection_id: string
+          created_at: string
+          fetched_at: string | null
+          id: string
+          normalized_payload: Json
+          period_end: string | null
+          period_start: string | null
+          raw_payload: Json
+          report_type: string
+        }
+        Insert: {
+          accounting_method?: string | null
+          business_id: string
+          connection_id: string
+          created_at?: string
+          fetched_at?: string | null
+          id?: string
+          normalized_payload?: Json
+          period_end?: string | null
+          period_start?: string | null
+          raw_payload?: Json
+          report_type: string
+        }
+        Update: {
+          accounting_method?: string | null
+          business_id?: string
+          connection_id?: string
+          created_at?: string
+          fetched_at?: string | null
+          id?: string
+          normalized_payload?: Json
+          period_end?: string | null
+          period_start?: string | null
+          raw_payload?: Json
+          report_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quickbooks_report_snapshots_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quickbooks_report_snapshots_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "quickbooks_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       risk_answers: {
         Row: {
           book_quality: string | null
