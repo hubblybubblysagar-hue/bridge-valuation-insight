@@ -189,18 +189,9 @@ export async function signUp(
 
   const needsEmailConfirmation = !data.session;
 
-  // Insert profile row when we have a session; without one the insert fails RLS.
-  if (data.session) {
-    const { error: insertError } = await supabase.from("profiles").insert({
-      id: authUser.id,
-      email,
-      role,
-      full_name: fullName ?? null,
-    });
-    if (insertError && !/duplicate/i.test(insertError.message)) {
-      throw new Error(insertError.message);
-    }
-  }
+  // A DB trigger (public.handle_new_auth_user) creates the profiles row
+  // automatically from raw_user_meta_data, so no client insert is needed
+  // — this also works when email confirmation is required.
 
   const user: User = { id: authUser.id, email, role, fullName: fullName ?? null };
   if (data.session) setState({ ...defaultState, user });

@@ -31,14 +31,20 @@ function bandSde(s: number) {
   return `${fmtCurrency(low)} – ${fmtCurrency(high)}`;
 }
 
-function reasonLabel(r: string) {
-  switch (r) {
-    case "retirement": return "retirement planning";
-    case "burnout": return "personal transition";
-    case "new-opportunity": return "a new professional opportunity";
-    case "succession": return "succession planning";
-    case "testing": return "exploring current market valuation";
-    default: return "strategic reasons";
+function transitionSentence(reason: string): string {
+  switch (reason) {
+    case "retirement":
+      return "The owner is exploring a sale as part of retirement planning and is open to a reasonable transition period to support continuity of operations and customer relationships.";
+    case "burnout":
+      return "The owner is exploring a sale as part of a personal transition and is open to a structured handover to protect operations and customer relationships.";
+    case "new-opportunity":
+      return "The owner is exploring a sale to pursue a new professional opportunity and is willing to support a reasonable transition period.";
+    case "succession":
+      return "The owner is exploring a sale as part of succession planning and is prepared to support a defined transition to the next operator.";
+    case "testing":
+      return "The owner is testing the current market and is open to a serious conversation with the right buyer, including a reasonable transition period.";
+    default:
+      return "The owner is exploring a sale for strategic reasons and is open to a reasonable transition period to support continuity of operations and customer relationships.";
   }
 }
 
@@ -73,7 +79,7 @@ export function buildTeaserSnapshot(business: Business, valuation: Valuation, re
           "Institutionalize sales and marketing to accelerate pipeline.",
           "Introduce recurring service plans to deepen customer relationships.",
         ]).slice(0, 4),
-    transitionProfile: `Owner is exploring a sale primarily for ${reasonLabel(business.reason)} and is open to a reasonable transition period to support continuity of operations and customer relationships.`,
+    transitionProfile: transitionSentence(business.reason),
     buyerFit:
       "Suited to individual acquisition entrepreneurs, search funds, strategic acquirers in adjacent markets, and small private equity groups seeking a stable platform investment.",
     confidentialityNote:
