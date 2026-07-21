@@ -475,3 +475,12 @@ function Checklist({ title, items }: { title: string; items: string[] }) {
     </div>
   );
 }
+
+function QbRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 rounded-md border border-border bg-background px-3 py-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="max-w-[60%] truncate font-mono text-xs text-foreground">{children}</dd>
+    </div>
+  );
+}
