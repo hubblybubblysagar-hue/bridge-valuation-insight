@@ -102,6 +102,9 @@ function QaBackendPage() {
     } finally {
       setQbBusy(null);
     }
+  }
+
+
 
   async function refreshCounts() {
     const teasers = await loadApprovedTeasers();
