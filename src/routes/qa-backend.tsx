@@ -28,6 +28,14 @@ import {
   persistValuation,
   submitNdaRequest,
 } from "@/lib/persist";
+import {
+  countCompanyInfoSnapshots,
+  disconnectQuickBooks,
+  loadConnectionSummary,
+  startQuickBooksOAuth,
+  verifyCompanyInfo,
+  type QbConnectionSummary,
+} from "@/lib/quickbooks";
 
 export const Route = createFileRoute("/qa-backend")({
   head: () => ({
@@ -52,6 +60,9 @@ function QaBackendPage() {
   const [profileRow, setProfileRow] = useState<Record<string, unknown> | null>(null);
   const [counts, setCounts] = useState<Counts>({ approvedTeasers: 0, ndaVisible: 0 });
   const [logs, setLogs] = useState<Array<{ ts: string; ok: boolean; msg: string }>>([]);
+  const [qbConn, setQbConn] = useState<QbConnectionSummary | null>(null);
+  const [qbSnapshots, setQbSnapshots] = useState<number>(0);
+  const [qbBusy, setQbBusy] = useState<string | null>(null);
 
   const log = (ok: boolean, msg: string) =>
     setLogs((l) => [{ ts: new Date().toLocaleTimeString(), ok, msg }, ...l].slice(0, 40));
@@ -65,9 +76,35 @@ function QaBackendPage() {
       if (!uid) return;
       const { data: profile } = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
       setProfileRow(profile ?? null);
-      await refreshCounts();
+      await Promise.all([refreshCounts(), refreshQb()]);
     })();
   }, []);
+
+  async function refreshQb() {
+    try {
+      const [c, n] = await Promise.all([loadConnectionSummary(), countCompanyInfoSnapshots()]);
+      setQbConn(c);
+      setQbSnapshots(n);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function runQb(label: string, fn: () => Promise<unknown>) {
+    setQbBusy(label);
+    try {
+      const r = await fn();
+      const detail = typeof r === "string" ? ` → ${r}` : "";
+      log(true, `${label}${detail}`);
+      await refreshQb();
+    } catch (e) {
+      log(false, `${label}: ${(e as Error).message}`);
+    } finally {
+      setQbBusy(null);
+    }
+  }
+
+
 
   async function refreshCounts() {
     const teasers = await loadApprovedTeasers();
@@ -161,6 +198,74 @@ function QaBackendPage() {
             ])}
           />
         </section>
+
+        {role === "seller" && (
+          <section className="rounded-2xl border border-border bg-card p-6 shadow-elegant">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+              QuickBooks connection QA
+            </h2>
+            <dl className="mt-4 grid gap-2 sm:grid-cols-2 text-sm">
+              <QbRow label="Environment">{qbConn?.environment ?? "—"}</QbRow>
+              <QbRow label="Status">{qbConn?.status ?? "—"}</QbRow>
+              <QbRow label="Company">{qbConn?.companyName ?? "—"}</QbRow>
+              <QbRow label="Realm (masked)">{qbConn?.realmIdMasked || "—"}</QbRow>
+              <QbRow label="Connection ID">{qbConn?.id ?? "—"}</QbRow>
+              <QbRow label="Token secret present">{qbConn ? (qbConn.tokenSecretPresent ? "yes" : "no") : "—"}</QbRow>
+              <QbRow label="Connected at">{qbConn?.connectedAt ?? "—"}</QbRow>
+              <QbRow label="Last synced">{qbConn?.lastSyncedAt ?? "—"}</QbRow>
+              <QbRow label="Access token expires">{qbConn?.accessTokenExpiresAt ?? "—"}</QbRow>
+              <QbRow label="Refresh token expires">{qbConn?.refreshTokenExpiresAt ?? "—"}</QbRow>
+              <QbRow label="company_info snapshots">{String(qbSnapshots)}</QbRow>
+              <QbRow label="Last error">{qbConn?.lastError ?? "—"}</QbRow>
+            </dl>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={qbBusy !== null}
+                onClick={() =>
+                  runQb("Start sandbox OAuth", async () => {
+                    const { authorizationUrl } = await startQuickBooksOAuth();
+                    window.location.href = authorizationUrl;
+                    return "redirecting";
+                  })
+                }
+              >
+                Start sandbox OAuth
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={qbBusy !== null || !qbConn}
+                onClick={() =>
+                  runQb("Verify CompanyInfo", async () => {
+                    const c = await verifyCompanyInfo();
+                    return c.companyName ?? "verified";
+                  })
+                }
+              >
+                Verify CompanyInfo
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={qbBusy !== null || !qbConn}
+                onClick={() =>
+                  runQb("Disconnect", async () => {
+                    await disconnectQuickBooks();
+                    return "ok";
+                  })
+                }
+              >
+                Disconnect
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Never displayed: tokens, decrypted vault content, client secret, authorization codes, full CompanyInfo.
+            </p>
+          </section>
+        )}
+
+
 
         <section className="rounded-2xl border border-border bg-card p-6 shadow-elegant">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
@@ -367,6 +472,15 @@ function Checklist({ title, items }: { title: string; items: string[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function QbRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 rounded-md border border-border bg-background px-3 py-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="max-w-[60%] truncate font-mono text-xs text-foreground">{children}</dd>
     </div>
   );
 }
