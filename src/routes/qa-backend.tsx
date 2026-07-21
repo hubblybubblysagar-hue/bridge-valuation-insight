@@ -28,6 +28,14 @@ import {
   persistValuation,
   submitNdaRequest,
 } from "@/lib/persist";
+import {
+  countCompanyInfoSnapshots,
+  disconnectQuickBooks,
+  loadConnectionSummary,
+  startQuickBooksOAuth,
+  verifyCompanyInfo,
+  type QbConnectionSummary,
+} from "@/lib/quickbooks";
 
 export const Route = createFileRoute("/qa-backend")({
   head: () => ({
