@@ -199,6 +199,74 @@ function QaBackendPage() {
           />
         </section>
 
+        {role === "seller" && (
+          <section className="rounded-2xl border border-border bg-card p-6 shadow-elegant">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+              QuickBooks connection QA
+            </h2>
+            <dl className="mt-4 grid gap-2 sm:grid-cols-2 text-sm">
+              <QbRow label="Environment">{qbConn?.environment ?? "—"}</QbRow>
+              <QbRow label="Status">{qbConn?.status ?? "—"}</QbRow>
+              <QbRow label="Company">{qbConn?.companyName ?? "—"}</QbRow>
+              <QbRow label="Realm (masked)">{qbConn?.realmIdMasked || "—"}</QbRow>
+              <QbRow label="Connection ID">{qbConn?.id ?? "—"}</QbRow>
+              <QbRow label="Token secret present">{qbConn ? (qbConn.tokenSecretPresent ? "yes" : "no") : "—"}</QbRow>
+              <QbRow label="Connected at">{qbConn?.connectedAt ?? "—"}</QbRow>
+              <QbRow label="Last synced">{qbConn?.lastSyncedAt ?? "—"}</QbRow>
+              <QbRow label="Access token expires">{qbConn?.accessTokenExpiresAt ?? "—"}</QbRow>
+              <QbRow label="Refresh token expires">{qbConn?.refreshTokenExpiresAt ?? "—"}</QbRow>
+              <QbRow label="company_info snapshots">{String(qbSnapshots)}</QbRow>
+              <QbRow label="Last error">{qbConn?.lastError ?? "—"}</QbRow>
+            </dl>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={qbBusy !== null}
+                onClick={() =>
+                  runQb("Start sandbox OAuth", async () => {
+                    const { authorizationUrl } = await startQuickBooksOAuth();
+                    window.location.href = authorizationUrl;
+                    return "redirecting";
+                  })
+                }
+              >
+                Start sandbox OAuth
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={qbBusy !== null || !qbConn}
+                onClick={() =>
+                  runQb("Verify CompanyInfo", async () => {
+                    const c = await verifyCompanyInfo();
+                    return c.companyName ?? "verified";
+                  })
+                }
+              >
+                Verify CompanyInfo
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={qbBusy !== null || !qbConn}
+                onClick={() =>
+                  runQb("Disconnect", async () => {
+                    await disconnectQuickBooks();
+                    return "ok";
+                  })
+                }
+              >
+                Disconnect
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Never displayed: tokens, decrypted vault content, client secret, authorization codes, full CompanyInfo.
+            </p>
+          </section>
+        )}
+
+
+
         <section className="rounded-2xl border border-border bg-card p-6 shadow-elegant">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
             Seller test actions
