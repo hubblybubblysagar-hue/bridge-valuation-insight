@@ -60,6 +60,9 @@ function QaBackendPage() {
   const [profileRow, setProfileRow] = useState<Record<string, unknown> | null>(null);
   const [counts, setCounts] = useState<Counts>({ approvedTeasers: 0, ndaVisible: 0 });
   const [logs, setLogs] = useState<Array<{ ts: string; ok: boolean; msg: string }>>([]);
+  const [qbConn, setQbConn] = useState<QbConnectionSummary | null>(null);
+  const [qbSnapshots, setQbSnapshots] = useState<number>(0);
+  const [qbBusy, setQbBusy] = useState<string | null>(null);
 
   const log = (ok: boolean, msg: string) =>
     setLogs((l) => [{ ts: new Date().toLocaleTimeString(), ok, msg }, ...l].slice(0, 40));
