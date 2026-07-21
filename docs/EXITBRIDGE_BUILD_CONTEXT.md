@@ -202,7 +202,31 @@ Supabase calls. Must stay this way.
 
 ## 11. Change Log
 
-- **2026-07-18 — Phase A hardening + QuickBooks schema scaffolding**
+- **2026-07-21 — Phase B: real QuickBooks OAuth (sandbox)**
+  - Deployed 4 edge functions: `quickbooks-auth-start` (JWT on),
+    `quickbooks-auth-callback` (JWT off — Intuit redirect target),
+    `quickbooks-company-info` (JWT on), `quickbooks-disconnect` (JWT on).
+  - Tokens are stored encrypted in Supabase Vault via `private.*`
+    SECURITY DEFINER helpers; `quickbooks_connections` holds only the
+    Vault secret id + safe metadata (realm_id, company_name, status,
+    expires_at, last_error). OAuth `state` is stored as a hash in
+    `quickbooks_oauth_states` and consumed atomically.
+  - Frontend: `src/lib/quickbooks.ts` invokes the edge functions;
+    `src/routes/seller.connect.tsx` handles real OAuth (start / verify /
+    disconnect) and shows masked realm + company name once connected.
+  - `/qa-backend` now has a "QuickBooks connection QA" panel for
+    sellers: connection status, masked realm, snapshot count, and
+    buttons to start OAuth, verify CompanyInfo (triggers refresh if
+    needed), and disconnect. Tokens are never rendered.
+  - Env: `INTUIT_CLIENT_ID`, `INTUIT_CLIENT_SECRET`,
+    `INTUIT_REDIRECT_URI`, `INTUIT_ENVIRONMENT=sandbox`,
+    `EXITBRIDGE_APP_URL`, `QUICKBOOKS_MINOR_VERSION=75` set in Supabase.
+  - Demo/QA isolation preserved: `/demo/*` and the `exitbridge.demo`
+    accounts never call Intuit.
+  - Follow-ups: P&L / Balance Sheet ingestion + normalization into
+    `seller_financials`; scheduled refresh job; admin/founder review.
+
+
   - Added DB trigger `public.handle_new_auth_user()` on `auth.users` that
     creates the `profiles` row from signup metadata. Removed the client-side
     profile insert in `signUp()` (was RLS-blocked when email confirmation
