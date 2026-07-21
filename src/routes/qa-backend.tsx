@@ -76,9 +76,32 @@ function QaBackendPage() {
       if (!uid) return;
       const { data: profile } = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
       setProfileRow(profile ?? null);
-      await refreshCounts();
+      await Promise.all([refreshCounts(), refreshQb()]);
     })();
   }, []);
+
+  async function refreshQb() {
+    try {
+      const [c, n] = await Promise.all([loadConnectionSummary(), countCompanyInfoSnapshots()]);
+      setQbConn(c);
+      setQbSnapshots(n);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function runQb(label: string, fn: () => Promise<unknown>) {
+    setQbBusy(label);
+    try {
+      const r = await fn();
+      const detail = typeof r === "string" ? ` → ${r}` : "";
+      log(true, `${label}${detail}`);
+      await refreshQb();
+    } catch (e) {
+      log(false, `${label}: ${(e as Error).message}`);
+    } finally {
+      setQbBusy(null);
+    }
 
   async function refreshCounts() {
     const teasers = await loadApprovedTeasers();
