@@ -225,7 +225,7 @@ Supabase calls. Must stay this way.
     accounts never call Intuit.
   - Follow-ups: P&L / Balance Sheet ingestion + normalization into
     `seller_financials`; scheduled refresh job; admin/founder review.
-
+- **2026-07-18 — Phase A hardening + QuickBooks schema scaffolding**
 
   - Added DB trigger `public.handle_new_auth_user()` on `auth.users` that
     creates the `profiles` row from signup metadata. Removed the client-side
