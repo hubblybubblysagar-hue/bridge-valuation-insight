@@ -24,15 +24,97 @@ export interface TokenBundle {
   issued_at: string; // ISO
 }
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-};
+// ---- CORS ----------------------------------------------------------------
+// No wildcard. Only EXITBRIDGE_APP_URL (plus localhost dev origins when
+// APP_ENV=development) may invoke the browser-facing functions.
+const DEV_ORIGINS = [
+  "http://localhost:8080",
+  "http://localhost:5173",
+  "http://127.0.0.1:8080",
+];
 
-export function corsHeaders(): Record<string, string> {
-  return { ...CORS_HEADERS };
+export function allowedOrigins(): string[] {
+  const list: string[] = [];
+  const app = Deno.env.get("EXITBRIDGE_APP_URL");
+  if (app) list.push(app.replace(/\/$/, ""));
+  const extra = Deno.env.get("EXITBRIDGE_EXTRA_ORIGINS");
+  if (extra) list.push(...extra.split(",").map((o) => o.trim()).filter(Boolean));
+  if ((Deno.env.get("APP_ENV") ?? "production") === "development") list.push(...DEV_ORIGINS);
+  return list;
+}
+
+export function isOriginAllowed(origin: string | null): boolean {
+  if (!origin) return true; // non-browser caller (CLI, workflow, server-to-server)
+  return allowedOrigins().includes(origin.replace(/\/$/, ""));
+}
+
+export function corsHeaders(origin?: string | null): Record<string, string> {
+  const base: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    Vary: "Origin",
+  };
+  const allowed = allowedOrigins();
+  const chosen = origin && allowed.includes(origin.replace(/\/$/, ""))
+    ? origin.replace(/\/$/, "")
+    : allowed[0];
+  if (chosen) base["Access-Control-Allow-Origin"] = chosen;
+  return base;
+}
+
+// ---- Stable, safe machine-readable error codes ---------------------------
+export const QB_ERROR = {
+  oauthStartUnauthorized: "oauth_start_unauthorized",
+  oauthStartSellerRequired: "oauth_start_seller_required",
+  oauthStateCreateFailed: "oauth_state_create_failed",
+  oauthStateInvalid: "oauth_state_invalid",
+  oauthStateExpiredOrReused: "oauth_state_expired_or_reused",
+  tokenExchangeFailed: "token_exchange_failed",
+  tokenVaultCreateFailed: "token_vault_create_failed",
+  tokenVaultReadFailed: "token_vault_read_failed",
+  tokenVaultUpdateFailed: "token_vault_update_failed",
+  connectionUpsertFailed: "connection_upsert_failed",
+  companyInfoFetchFailed: "company_info_fetch_failed",
+  companyInfoSnapshotFailed: "company_info_snapshot_failed",
+  tokenRefreshFailed: "token_refresh_failed",
+  disconnectRevokeFailed: "disconnect_revoke_failed",
+  disconnectVaultDeleteFailed: "disconnect_vault_delete_failed",
+  originNotAllowed: "origin_not_allowed",
+  qaDisabled: "qa_disabled",
+  forbiddenRole: "forbidden_role",
+  noConnection: "no_connection",
+} as const;
+
+export type QbErrorCode = typeof QB_ERROR[keyof typeof QB_ERROR];
+
+export class QbError extends Error {
+  code: QbErrorCode;
+  constructor(code: QbErrorCode, message?: string) {
+    super(message ?? code);
+    this.code = code;
+  }
+}
+
+/** Normalize any thrown value into a safe, machine-readable code. */
+export function toErrorCode(e: unknown, fallback: QbErrorCode): QbErrorCode {
+  return e instanceof QbError ? e.code : fallback;
+}
+
+/** The only value ever written to quickbooks_connections.last_error. */
+export function safeLastError(code: QbErrorCode, cid: string): string {
+  return `${code}:${cid}`;
+}
+
+export function jsonError(
+  code: QbErrorCode,
+  cid: string,
+  status: number,
+  origin?: string | null,
+): Response {
+  return new Response(JSON.stringify({ error: code, correlationId: cid }), {
+    status,
+    headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
+  });
 }
 
 export function loadConfig(): QuickBooksConfig {
@@ -165,7 +247,7 @@ export async function exchangeAuthorizationCode(
     body,
   });
   if (!res.ok) {
-    throw new Error(`Intuit token exchange failed (${res.status})`);
+    throw new QbError(QB_ERROR.tokenExchangeFailed, `status ${res.status}`);
   }
   const json = await res.json();
   return computeExpiries(json);
@@ -189,7 +271,7 @@ export async function refreshTokenBundle(
     body,
   });
   if (!res.ok) {
-    throw new Error(`Intuit token refresh failed (${res.status})`);
+    throw new QbError(QB_ERROR.tokenRefreshFailed, `status ${res.status}`);
   }
   const json = await res.json();
   return computeExpiries(json);
@@ -229,7 +311,7 @@ export async function quickbooksGet(
     },
   });
   if (!res.ok) {
-    throw new Error(`QuickBooks GET ${path} failed (${res.status})`);
+    throw new QbError(QB_ERROR.companyInfoFetchFailed, `status ${res.status}`);
   }
   return res.json();
 }
@@ -270,6 +352,7 @@ export function logSafe(event: Record<string, unknown>): void {
     "status",
     "intuit_status",
     "error",
+    "error_code",
     "timestamp",
   ]);
   const clean: Record<string, unknown> = { ts: new Date().toISOString() };
@@ -277,6 +360,26 @@ export function logSafe(event: Record<string, unknown>): void {
     if (allow.has(k)) clean[k] = v;
   }
   console.log(JSON.stringify(clean));
+}
+
+export async function consumeOAuthState(
+  admin: SupabaseClient,
+  stateHash: string,
+): Promise<{ seller_id: string; business_id: string | null } | null> {
+  const { data, error } = await admin.rpc("service_qb_consume_oauth_state" as never, {
+    _state_hash: stateHash,
+  } as never);
+  if (error) throw new QbError(QB_ERROR.oauthStateInvalid, safeError(error));
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || !(row as { seller_id?: string }).seller_id) return null;
+  return row as { seller_id: string; business_id: string | null };
+}
+
+export function buildInfo(): { appEnvironment: string; buildCommit: string } {
+  return {
+    appEnvironment: Deno.env.get("APP_ENV") ?? "production",
+    buildCommit: Deno.env.get("BUILD_COMMIT") ?? "unknown",
+  };
 }
 
 export interface StoredConnection {
@@ -300,10 +403,10 @@ export async function getTokenBundle(
   admin: SupabaseClient,
   secretId: string,
 ): Promise<TokenBundle | null> {
-  const { data, error } = await admin.rpc("get_quickbooks_token_secret" as never, {
+  const { data, error } = await admin.rpc("service_qb_get_token_secret" as never, {
     _secret_id: secretId,
   } as never);
-  if (error) throw new Error(safeError(error));
+  if (error) throw new QbError(QB_ERROR.tokenVaultReadFailed, safeError(error));
   if (!data) return null;
   return typeof data === "string" ? JSON.parse(data) : (data as TokenBundle);
 }
@@ -313,11 +416,11 @@ export async function createTokenSecret(
   bundle: TokenBundle,
   name: string,
 ): Promise<string> {
-  const { data, error } = await admin.rpc("create_quickbooks_token_secret" as never, {
+  const { data, error } = await admin.rpc("service_qb_create_token_secret" as never, {
     _bundle: bundle as unknown as Record<string, unknown>,
     _name: name,
   } as never);
-  if (error) throw new Error(safeError(error));
+  if (error) throw new QbError(QB_ERROR.tokenVaultCreateFailed, safeError(error));
   return data as string;
 }
 
@@ -326,18 +429,18 @@ export async function updateTokenSecret(
   secretId: string,
   bundle: TokenBundle,
 ): Promise<void> {
-  const { error } = await admin.rpc("update_quickbooks_token_secret" as never, {
+  const { error } = await admin.rpc("service_qb_update_token_secret" as never, {
     _secret_id: secretId,
     _bundle: bundle as unknown as Record<string, unknown>,
   } as never);
-  if (error) throw new Error(safeError(error));
+  if (error) throw new QbError(QB_ERROR.tokenVaultUpdateFailed, safeError(error));
 }
 
 export async function deleteTokenSecret(
   admin: SupabaseClient,
   secretId: string,
 ): Promise<void> {
-  await admin.rpc("delete_quickbooks_token_secret" as never, {
+  await admin.rpc("service_qb_delete_token_secret" as never, {
     _secret_id: secretId,
   } as never);
 }
@@ -348,9 +451,9 @@ export async function ensureFreshAccess(
   cfg: QuickBooksConfig,
   conn: StoredConnection,
 ): Promise<{ bundle: TokenBundle; refreshed: boolean }> {
-  if (!conn.token_secret_id) throw new Error("connection has no token secret");
+  if (!conn.token_secret_id) throw new QbError(QB_ERROR.tokenVaultReadFailed, "no token secret");
   const bundle = await getTokenBundle(admin, conn.token_secret_id);
-  if (!bundle) throw new Error("token secret unavailable");
+  if (!bundle) throw new QbError(QB_ERROR.tokenVaultReadFailed, "token secret unavailable");
   const exp = Date.parse(bundle.access_token_expires_at);
   if (exp - Date.now() > 5 * 60 * 1000) {
     return { bundle, refreshed: false };
