@@ -232,8 +232,47 @@ Supabase calls. Must stay this way.
       Playwright) and `.github/workflows/quickbooks-smoke.yml` (daily
       read-only sandbox connectivity check).
   - New env/secrets for CI only: `QA_BASE_URL`, `QA_SELLER_EMAIL`,
-    `QA_SELLER_PASSWORD`, `QA_BUYER_EMAIL`, `QA_BUYER_PASSWORD`,
-    `QA_STATUS_TOKEN`.
+    `QA_SELLER_PASSWORD`, `QA_BUYER_EMAIL`, `QA_BUYER_PASSWORD`.
+
+- **2026-07-31 — Phase C.1: CI automation repair**
+  - **`QA_STATUS_TOKEN` removed everywhere.** A stored Supabase *user* access
+    token expires within an hour and is not a valid permanent secret for a
+    scheduled workflow. `quickbooks-smoke.yml` now signs in at runtime:
+    `POST $SUPABASE_URL/auth/v1/token?grant_type=password` with the `apikey`
+    header and the QA seller credentials, reads `access_token` with `jq`,
+    calls `qa-quickbooks-status` with `Authorization: Bearer <token>` +
+    `apikey`, then unsets the variable. The token is never echoed, uploaded,
+    or persisted.
+  - Smoke assertions now match the real flat response schema
+    (`connectionExists`, `connectionStatus`, `tokenSecretPresent`,
+    `companyInfoRetrieved`, `companyInfoSnapshotCount`). The old
+    `.ok` / `.connection.*` / `.snapshots.*` checks were invalid and removed.
+    Missing connection fails with `manual_oauth_authorization_required`.
+    Only a sanitized six-field summary is printed; the run fails if the
+    response contains `access_token`, `refresh_token`, `realm_id`,
+    `token_secret_id`, `company_name`, `seller_id`, `user_id`, or
+    `business_id`.
+  - Exact GitHub secrets — `ci.yml`: `VITE_SUPABASE_URL`,
+    `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`,
+    `QA_BASE_URL`, `QA_SELLER_EMAIL`, `QA_SELLER_PASSWORD`,
+    `QA_BUYER_EMAIL`, `QA_BUYER_PASSWORD`. `quickbooks-smoke.yml`:
+    `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `QA_SELLER_EMAIL`,
+    `QA_SELLER_PASSWORD`. Intuit client id/secret stay only in Supabase Edge
+    Function secrets and are never added to GitHub.
+  - New `.github/workflows/qa-pages.yml` publishes a **sanitized** public QA
+    report (`index.html` + `qa-summary.json`) via `actions/configure-pages`,
+    `actions/upload-pages-artifact`, `actions/deploy-pages` with
+    `contents: read`, `pages: write`, `id-token: write` and the
+    `github-pages` environment. It contains pass/fail/skipped statuses,
+    commit SHA, timestamp, test counts, and a safe error code only —
+    no emails, ids, company names, financial values, keys, screenshots, or
+    raw logs. Unconfigured authenticated suites report `skipped`, never
+    `pass`. Playwright HTML/JUnit/JSON reports, screenshots, and traces stay
+    private Actions artifacts.
+  - All three workflows (`ci.yml`, `quickbooks-smoke.yml`, `qa-pages.yml`)
+    include `workflow_dispatch` so they appear and can be run manually from
+    the Actions tab.
+
 
 
 

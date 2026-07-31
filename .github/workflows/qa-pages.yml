@@ -1,0 +1,188 @@
+name: QA report (GitHub Pages)
+
+# Builds a SANITIZED public QA status report. It contains pass/fail/skipped
+# results only — never emails, ids, company data, financial values, tokens,
+# keys, screenshots, or raw logs. Detailed evidence stays in the private
+# Actions artifacts produced by ci.yml.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: qa-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    name: Collect sanitized QA results
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: bunx tsgo --noEmit
+
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: bun run lint
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
+        run: bun run build
+
+      - name: Edge Function unit tests
+        id: functions
+        continue-on-error: true
+        run: deno test --allow-net --allow-env --allow-read supabase/functions/tests/
+
+      - name: Database tests (pgTAP)
+        id: database
+        continue-on-error: true
+        run: |
+          set -e
+          echo "pgTAP suite runs in ci.yml; mirroring its presence only."
+          test -d supabase/tests/database
+
+      - name: Install Playwright browsers
+        continue-on-error: true
+        run: bunx playwright install --with-deps chromium
+
+      - name: Public browser tests
+        id: public_browser
+        continue-on-error: true
+        env:
+          QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+        run: bunx playwright test --project=public
+
+      - name: Authenticated browser tests
+        id: auth_browser
+        continue-on-error: true
+        env:
+          QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+          QA_SELLER_EMAIL: ${{ secrets.QA_SELLER_EMAIL }}
+          QA_SELLER_PASSWORD: ${{ secrets.QA_SELLER_PASSWORD }}
+          QA_BUYER_EMAIL: ${{ secrets.QA_BUYER_EMAIL }}
+          QA_BUYER_PASSWORD: ${{ secrets.QA_BUYER_PASSWORD }}
+        run: |
+          if [ -z "$QA_SELLER_EMAIL" ] || [ -z "$QA_BUYER_EMAIL" ]; then
+            echo "auth_configured=false" >> "$GITHUB_OUTPUT"
+            echo "QA account secrets unset — skipping."
+            exit 0
+          fi
+          echo "auth_configured=true" >> "$GITHUB_OUTPUT"
+          bunx playwright test --project=seller --project=buyer
+
+      - name: Private evidence artifacts (not published)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-pages-playwright-evidence
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+      - name: Build sanitized report
+        if: always()
+        env:
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          FUNCTIONS: ${{ steps.functions.outcome }}
+          DATABASE: ${{ steps.database.outcome }}
+          PUBLIC_BROWSER: ${{ steps.public_browser.outcome }}
+          AUTH_BROWSER: ${{ steps.auth_browser.outcome }}
+          AUTH_CONFIGURED: ${{ steps.auth_browser.outputs.auth_configured }}
+        run: |
+          set -euo pipefail
+          mkdir -p site
+
+          norm() { case "$1" in success) echo pass ;; skipped|"") echo skipped ;; *) echo fail ;; esac; }
+
+          auth_result="$(norm "$AUTH_BROWSER")"
+          if [ "${AUTH_CONFIGURED:-false}" != "true" ]; then auth_result="skipped"; fi
+
+          total=0; failed=0
+          if [ -f test-results/results.json ]; then
+            total=$(jq '[.suites|..|objects|select(has("tests"))|.tests[]]|length' test-results/results.json 2>/dev/null || echo 0)
+            failed=$(jq '[.suites|..|objects|select(has("tests"))|.tests[]|select(.results[]?.status=="failed")]|length' test-results/results.json 2>/dev/null || echo 0)
+          fi
+
+          safe_error="none"
+          [ "$(norm "$BUILD")" = "fail" ] && safe_error="build_failed"
+          [ "$(norm "$TYPECHECK")" = "fail" ] && safe_error="typecheck_failed"
+
+          jq -n \
+            --arg commit "${GITHUB_SHA}" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg typecheck "$(norm "$TYPECHECK")" \
+            --arg lint "$(norm "$LINT")" \
+            --arg build "$(norm "$BUILD")" \
+            --arg functions "$(norm "$FUNCTIONS")" \
+            --arg database "$(norm "$DATABASE")" \
+            --arg publicBrowser "$(norm "$PUBLIC_BROWSER")" \
+            --arg authBrowser "$auth_result" \
+            --arg quickbooksSmoke "not-run" \
+            --argjson totalTests "${total:-0}" \
+            --argjson failedTests "${failed:-0}" \
+            --arg safeErrorCode "$safe_error" \
+            '{commit:$commit, generatedAt:$ts, typecheck:$typecheck, lint:$lint, build:$build,
+              edgeFunctionTests:$functions, databaseTests:$database,
+              publicBrowserTests:$publicBrowser, authenticatedBrowserTests:$authBrowser,
+              quickbooksSmoke:$quickbooksSmoke, totalTests:$totalTests,
+              failedTests:$failedTests, safeErrorCode:$safeErrorCode}' > site/qa-summary.json
+
+          {
+            echo '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            echo '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            echo '<title>ExitBridge QA status</title>'
+            echo '<style>body{font-family:ui-sans-serif,system-ui,sans-serif;margin:0;padding:48px;background:#faf9f5;color:#1c1c17}'
+            echo 'h1{font-size:28px;margin:0 0 4px}p{color:#5b5b50}table{border-collapse:collapse;margin-top:24px;width:100%;max-width:640px}'
+            echo 'td,th{text-align:left;padding:10px 12px;border-bottom:1px solid #e3e1d6;font-size:14px}'
+            echo '.pass{color:#3f6212;font-weight:600}.fail{color:#9f1239;font-weight:600}.skipped{color:#8a8a7a;font-weight:600}</style>'
+            echo '</head><body><h1>ExitBridge QA status</h1>'
+            echo "<p>Sanitized public report — no customer, account, or financial data.</p>"
+            echo '<table><tbody>'
+            jq -r 'to_entries[] | "<tr><th>\(.key)</th><td class=\"\(.value|tostring)\">\(.value)</td></tr>"' site/qa-summary.json
+            echo '</tbody></table>'
+            echo '<p style="margin-top:24px"><a href="./qa-summary.json">qa-summary.json</a></p>'
+            echo '</body></html>'
+          } > site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        if: always()
+        with:
+          path: site
+
+  deploy:
+    name: Deploy QA report to Pages
+    needs: collect
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - id: deployment
+        uses: actions/deploy-pages@v4

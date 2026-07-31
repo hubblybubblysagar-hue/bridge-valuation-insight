@@ -1,8 +1,10 @@
 name: QuickBooks sandbox smoke
 
 # Daily read-only connectivity check against the QA seller's sandbox
-# connection. It only calls the safe aggregate status endpoint — never
-# tokens, never a real seller, never a write to Intuit.
+# connection. It signs in as the synthetic QA seller at runtime (no stored
+# user access token), then calls only the safe aggregate status endpoint.
+# Intuit client id/secret live exclusively in Supabase Edge Function secrets
+# and are never added to GitHub.
 on:
   schedule:
     - cron: "0 11 * * *"
@@ -17,37 +19,83 @@ jobs:
 
       - name: Skip when QA secrets are unset
         id: gate
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          QA_SELLER_EMAIL: ${{ secrets.QA_SELLER_EMAIL }}
+          QA_SELLER_PASSWORD: ${{ secrets.QA_SELLER_PASSWORD }}
         run: |
-          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.QA_STATUS_TOKEN }}" ]; then
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ] \
+             || [ -z "$QA_SELLER_EMAIL" ] || [ -z "$QA_SELLER_PASSWORD" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "QA secrets not configured — skipping."
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Call qa-quickbooks-status
+      - name: Sign in as QA seller and call qa-quickbooks-status
         if: steps.gate.outputs.configured == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          QA_STATUS_TOKEN: ${{ secrets.QA_STATUS_TOKEN }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          QA_SELLER_EMAIL: ${{ secrets.QA_SELLER_EMAIL }}
+          QA_SELLER_PASSWORD: ${{ secrets.QA_SELLER_PASSWORD }}
         run: |
           set -euo pipefail
-          body=$(curl -sS --fail-with-body --max-time 30 \
-            -X POST "$SUPABASE_URL/functions/v1/qa-quickbooks-status" \
-            -H "Authorization: Bearer $QA_STATUS_TOKEN" \
+
+          # 1. Exchange the QA seller credentials for a short-lived access token.
+          #    The token is never echoed, uploaded, or written to disk.
+          login_payload=$(jq -nc --arg e "$QA_SELLER_EMAIL" --arg p "$QA_SELLER_PASSWORD" \
+            '{email:$e,password:$p}')
+          login_body=$(curl -sS --fail-with-body --max-time 30 \
+            -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
             -H "Content-Type: application/json" \
-            -d '{}')
-          echo "$body" | jq .
-          # Fail loudly if the endpoint reports a broken or stale connection.
-          echo "$body" | jq -e '.ok == true' > /dev/null
-          echo "$body" | jq -e '.connection.status == "connected"' > /dev/null
-          echo "$body" | jq -e '.connection.tokenSecretPresent == true' > /dev/null
-          echo "$body" | jq -e '.snapshots.companyInfoCount >= 1' > /dev/null
-          # The response must never contain raw credentials or realm ids.
-          if echo "$body" | grep -Eiq '"(access_token|refresh_token|realm_id)"'; then
-            echo "::error::status endpoint leaked sensitive fields"
+            -d "$login_payload" 2>/dev/null) || {
+              echo "::error::QA seller sign-in failed"; exit 1; }
+          unset login_payload
+
+          ACCESS_TOKEN=$(printf '%s' "$login_body" | jq -r '.access_token // empty')
+          unset login_body
+          if [ -z "$ACCESS_TOKEN" ]; then
+            echo "::error::no access token returned for the QA seller"
             exit 1
           fi
+
+          # 2. Call the safe aggregate status endpoint.
+          body=$(curl -sS --fail-with-body --max-time 30 \
+            -X POST "$SUPABASE_URL/functions/v1/qa-quickbooks-status" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          unset ACCESS_TOKEN
+
+          # 3. The response must never contain sensitive fields.
+          if printf '%s' "$body" | jq -e '
+                [paths(scalars)|last|tostring]
+                | any(. == "access_token" or . == "refresh_token" or . == "realm_id"
+                      or . == "token_secret_id" or . == "company_name"
+                      or . == "seller_id" or . == "user_id" or . == "business_id")
+              ' > /dev/null; then
+            echo "::error::status endpoint leaked a prohibited field"
+            exit 1
+          fi
+
+          # 4. Sanitized summary only — never the full response.
+          printf '%s' "$body" | jq '{
+            connectionStatus, tokenSecretPresent, companyInfoRetrieved,
+            companyInfoSnapshotCount, safeLastErrorCode, migrationVersion }'
+
+          # 5. Assertions against the real, flat response schema.
+          if ! printf '%s' "$body" | jq -e '.connectionExists == true' > /dev/null; then
+            echo "::error::manual_oauth_authorization_required"
+            exit 1
+          fi
+          printf '%s' "$body" | jq -e '.connectionStatus == "connected"' > /dev/null
+          printf '%s' "$body" | jq -e '.tokenSecretPresent == true' > /dev/null
+          printf '%s' "$body" | jq -e '.companyInfoRetrieved == true' > /dev/null
+          printf '%s' "$body" | jq -e '.companyInfoSnapshotCount >= 1' > /dev/null
 
       - name: Report failure
         if: failure()
