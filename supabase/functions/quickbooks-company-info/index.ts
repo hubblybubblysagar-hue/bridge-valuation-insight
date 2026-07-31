@@ -5,28 +5,31 @@ import {
   corsHeaders,
   correlationId,
   ensureFreshAccess,
+  isOriginAllowed,
+  jsonError,
   loadConfig,
   logSafe,
   maskRealm,
+  QB_ERROR,
   quickbooksGet,
   safeError,
+  safeLastError,
   serviceRoleClient,
+  toErrorCode,
   type StoredConnection,
 } from "../_shared/quickbooks.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders() });
+  const origin = req.headers.get("Origin");
   const cid = correlationId();
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(origin) });
+  if (!isOriginAllowed(origin)) return jsonError(QB_ERROR.originNotAllowed, cid, 403, origin);
+  let connectionId: string | null = null;
+  const admin = serviceRoleClient();
   try {
     const cfg = loadConfig();
     const user = await authedUserFromRequest(req);
-    if (!user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders(), "Content-Type": "application/json" },
-      });
-    }
-    const admin = serviceRoleClient();
+    if (!user) return jsonError(QB_ERROR.oauthStartUnauthorized, cid, 401, origin);
     const { data: conn } = await admin
       .from("quickbooks_connections")
       .select("*")
@@ -34,13 +37,9 @@ Deno.serve(async (req) => {
       .order("connected_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
-    if (!conn) {
-      return new Response(JSON.stringify({ error: "no_connection" }), {
-        status: 404,
-        headers: { ...corsHeaders(), "Content-Type": "application/json" },
-      });
-    }
+    if (!conn) return jsonError(QB_ERROR.noConnection, cid, 404, origin);
     const stored = conn as StoredConnection;
+    connectionId = stored.id;
     const { bundle } = await ensureFreshAccess(admin, cfg, stored);
 
     const info = await quickbooksGet(
@@ -52,7 +51,7 @@ Deno.serve(async (req) => {
     const companyName =
       info?.CompanyInfo?.CompanyName ?? info?.CompanyInfo?.LegalName ?? stored.company_name;
 
-    await admin.from("quickbooks_report_snapshots").insert({
+    const { error: snapErr } = await admin.from("quickbooks_report_snapshots").insert({
       connection_id: stored.id,
       business_id: stored.business_id!,
       report_type: "company_info",
@@ -64,6 +63,13 @@ Deno.serve(async (req) => {
       },
       fetched_at: new Date().toISOString(),
     });
+    if (snapErr) {
+      await admin
+        .from("quickbooks_connections")
+        .update({ last_error: safeLastError(QB_ERROR.companyInfoSnapshotFailed, cid) })
+        .eq("id", stored.id);
+      return jsonError(QB_ERROR.companyInfoSnapshotFailed, cid, 500, origin);
+    }
 
     const nowIso = new Date().toISOString();
     await admin
@@ -98,14 +104,19 @@ Deno.serve(async (req) => {
         lastSyncedAt: nowIso,
         accessTokenExpiresAt: bundle.access_token_expires_at,
         refreshTokenExpiresAt: bundle.refresh_token_expires_at,
+        correlationId: cid,
       }),
-      { status: 200, headers: { ...corsHeaders(), "Content-Type": "application/json" } },
+      { status: 200, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
     );
   } catch (e) {
-    logSafe({ correlation_id: cid, action: "company_info", status: "error", error: safeError(e) });
-    return new Response(JSON.stringify({ error: "company_info_failed" }), {
-      status: 500,
-      headers: { ...corsHeaders(), "Content-Type": "application/json" },
-    });
+    const code = toErrorCode(e, QB_ERROR.companyInfoFetchFailed);
+    if (connectionId) {
+      await admin
+        .from("quickbooks_connections")
+        .update({ status: "needs_attention", last_error: safeLastError(code, cid) })
+        .eq("id", connectionId);
+    }
+    logSafe({ correlation_id: cid, action: "company_info", error_code: code, error: safeError(e) });
+    return jsonError(code, cid, 500, origin);
   }
 });
