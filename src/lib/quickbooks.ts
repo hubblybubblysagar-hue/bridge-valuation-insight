@@ -45,6 +45,34 @@ export async function loadConnectionSummary(): Promise<QbConnectionSummary | nul
   };
 }
 
+export async function companyInfoSnapshotCount(connectionId: string): Promise<number> {
+  const { count } = await supabase
+    .from("quickbooks_report_snapshots")
+    .select("id", { count: "exact", head: true })
+    .eq("connection_id", connectionId)
+    .eq("report_type", "company_info");
+  return count ?? 0;
+}
+
+export interface QaQuickBooksStatus {
+  appEnvironment: string;
+  buildCommit: string;
+  connectionExists: boolean;
+  connectionStatus: string | null;
+  tokenSecretPresent: boolean;
+  companyInfoRetrieved: boolean;
+  companyInfoSnapshotCount: number;
+  connectedAt: string | null;
+  lastVerifiedAt: string | null;
+  safeLastErrorCode: string | null;
+  latestCorrelationId: string | null;
+  migrationVersion: string;
+}
+
+export async function loadQaQuickBooksStatus(): Promise<QaQuickBooksStatus> {
+  return invokeFn<QaQuickBooksStatus>("qa-quickbooks-status");
+}
+
 export async function countCompanyInfoSnapshots(): Promise<number> {
   const { data: session } = await supabase.auth.getSession();
   const userId = session.session?.user?.id;
