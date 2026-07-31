@@ -6,47 +6,37 @@ import {
   corsHeaders,
   correlationId,
   generateOAuthState,
+  isOriginAllowed,
+  jsonError,
   loadConfig,
   logSafe,
+  QB_ERROR,
   safeError,
   serviceRoleClient,
   sha256Hex,
+  toErrorCode,
 } from "../_shared/quickbooks.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders() });
+  const origin = req.headers.get("Origin");
   const cid = correlationId();
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(origin) });
+  if (!isOriginAllowed(origin)) return jsonError(QB_ERROR.originNotAllowed, cid, 403, origin);
   try {
-    if (req.method !== "POST" && req.method !== "GET") {
-      return new Response(JSON.stringify({ error: "method not allowed" }), {
-        status: 405,
-        headers: { ...corsHeaders(), "Content-Type": "application/json" },
-      });
-    }
     const cfg = loadConfig();
     const user = await authedUserFromRequest(req);
-    if (!user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders(), "Content-Type": "application/json" },
-      });
-    }
+    if (!user) return jsonError(QB_ERROR.oauthStartUnauthorized, cid, 401, origin);
     const admin = serviceRoleClient();
 
-    // Require seller role.
     const { data: profile } = await admin
       .from("profiles")
       .select("id, role")
       .eq("id", user.id)
       .maybeSingle();
     if (!profile || profile.role !== "seller") {
-      return new Response(JSON.stringify({ error: "seller role required" }), {
-        status: 403,
-        headers: { ...corsHeaders(), "Content-Type": "application/json" },
-      });
+      return jsonError(QB_ERROR.oauthStartSellerRequired, cid, 403, origin);
     }
 
-    // Find or create the seller's business.
     const { data: existing } = await admin
       .from("businesses")
       .select("id")
@@ -61,11 +51,10 @@ Deno.serve(async (req) => {
         .insert({ seller_id: user.id, status: "draft" })
         .select("id")
         .single();
-      if (createErr) throw createErr;
+      if (createErr) return jsonError(QB_ERROR.oauthStateCreateFailed, cid, 500, origin);
       businessId = created.id;
     }
 
-    // Invalidate previous unconsumed states for this seller to keep the table tidy.
     await admin
       .from("quickbooks_oauth_states")
       .update({ consumed_at: new Date().toISOString() })
@@ -82,19 +71,17 @@ Deno.serve(async (req) => {
       state_hash: stateHash,
       expires_at: expiresAt,
     });
-    if (insErr) throw insErr;
+    if (insErr) return jsonError(QB_ERROR.oauthStateCreateFailed, cid, 500, origin);
 
     const authorizationUrl = buildAuthorizationUrl(cfg, rawState);
     logSafe({ correlation_id: cid, action: "oauth_start", seller_id: user.id, status: "ok" });
-    return new Response(JSON.stringify({ authorizationUrl, expiresAt }), {
+    return new Response(JSON.stringify({ authorizationUrl, expiresAt, correlationId: cid }), {
       status: 200,
-      headers: { ...corsHeaders(), "Content-Type": "application/json" },
+      headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
     });
   } catch (e) {
-    logSafe({ correlation_id: cid, action: "oauth_start", status: "error", error: safeError(e) });
-    return new Response(JSON.stringify({ error: "oauth_start_failed" }), {
-      status: 500,
-      headers: { ...corsHeaders(), "Content-Type": "application/json" },
-    });
+    const code = toErrorCode(e, QB_ERROR.oauthStateCreateFailed);
+    logSafe({ correlation_id: cid, action: "oauth_start", error_code: code, error: safeError(e) });
+    return jsonError(code, cid, 500, origin);
   }
 });
