@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Typecheck, lint, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bunx tsgo --noEmit
+      - name: Lint
+        run: bun run lint
+      - name: Build
+        run: bun run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
+
+  edge-function-tests:
+    name: Edge Function unit tests (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run Deno tests
+        # These tests stub fetch; no Intuit or Supabase call leaves the runner.
+        run: deno test --allow-net --allow-env --allow-read supabase/functions/tests/
+
+  database-tests:
+    name: Database tests (pgTAP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start local Supabase
+        run: supabase start
+      - name: Apply migrations
+        run: supabase db reset --no-seed
+      - name: Run pgTAP suite
+        run: supabase test db
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
+
+  browser-tests:
+    name: Browser tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+      - name: Run public browser tests
+        run: bunx playwright test --project=public
+        env:
+          QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+      - name: Run seller + buyer browser tests
+        # Skipped automatically when the QA account secrets are unset.
+        run: bunx playwright test --project=seller --project=buyer
+        env:
+          QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+          QA_SELLER_EMAIL: ${{ secrets.QA_SELLER_EMAIL }}
+          QA_SELLER_PASSWORD: ${{ secrets.QA_SELLER_PASSWORD }}
+          QA_BUYER_EMAIL: ${{ secrets.QA_BUYER_EMAIL }}
+          QA_BUYER_PASSWORD: ${{ secrets.QA_BUYER_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
