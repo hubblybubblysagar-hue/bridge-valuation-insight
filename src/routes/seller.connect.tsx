@@ -1,12 +1,31 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { CheckCircle2, FileSpreadsheet, Keyboard, Loader2, Lock, PlugZap, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileSpreadsheet,
+  Keyboard,
+  Loader2,
+  Lock,
+  PlugZap,
+} from "lucide-react";
 import { toast } from "sonner";
 import { SellerLayout } from "@/components/SellerLayout";
 import { Button } from "@/components/ui/button";
-import { setState, useAppState, type Financials } from "@/lib/store";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { setState, type Financials } from "@/lib/store";
 import { persistFinancials } from "@/lib/persist";
 import {
+  companyInfoSnapshotCount,
   disconnectQuickBooks,
   loadConnectionSummary,
   startQuickBooksOAuth,
@@ -19,7 +38,8 @@ export const Route = createFileRoute("/seller/connect")({
   component: ConnectPage,
 });
 
-const MOCK: Financials = {
+/** Clearly-labelled demonstration numbers. Never presented as QuickBooks data. */
+const SAMPLE_FINANCIALS: Financials = {
   revenue: 2850000,
   grossProfit: 1425000,
   operatingExpenses: 1000000,
@@ -32,40 +52,121 @@ const MOCK: Financials = {
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  try { return new Date(iso).toLocaleString(); } catch { return "—"; }
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return "—";
+  }
 }
 
+type Busy = "start" | "verify" | "disconnect" | "sample" | "callback" | null;
+
 export function ConnectPage() {
-  const qb = useAppState((s) => s.qbConnected);
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"qb" | "upload" | "manual">("qb");
   const [conn, setConn] = useState<QbConnectionSummary | null>(null);
-  const [busy, setBusy] = useState<"start" | "verify" | "disconnect" | null>(null);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [callbackError, setCallbackError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Load real connection state on mount + surface callback query params.
-    loadConnectionSummary().then(setConn).catch(() => setConn(null));
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const flag = params.get("quickbooks");
-    if (flag === "connected") toast.success("QuickBooks connected");
-    else if (flag === "denied") toast.error("QuickBooks connection was cancelled");
-    else if (flag === "error") toast.error("We couldn't complete the QuickBooks connection. Please try again.");
-    if (flag) {
-      params.delete("quickbooks");
-      const qs = params.toString();
-      window.history.replaceState({}, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  const reload = useCallback(async () => {
+    try {
+      const fresh = await loadConnectionSummary();
+      setConn(fresh);
+      return fresh;
+    } catch {
+      setConn(null);
+      return null;
     }
   }, []);
 
+  // Mount: load real connection truth, then interpret any callback hint.
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const params =
+        typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
+      const flag = params.get("quickbooks");
+      const code = params.get("code");
+      const cid = params.get("cid");
+
+      if (flag && typeof window !== "undefined") {
+        params.delete("quickbooks");
+        params.delete("code");
+        params.delete("cid");
+        const qs = params.toString();
+        window.history.replaceState({}, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+      }
+
+      if (flag === "connected") setBusy("callback");
+      const fresh = await reload();
+      if (cancelled) return;
+
+      if (flag === "denied") {
+        setCallbackError("You cancelled the QuickBooks authorization. Nothing was connected.");
+        setBusy(null);
+        return;
+      }
+      if (flag === "error") {
+        setCallbackError(
+          `We returned from Intuit, but ExitBridge could not verify the connection. Reference: ${code ?? "unknown"}${cid ? ` / ${cid}` : ""}`,
+        );
+        setBusy(null);
+        return;
+      }
+      if (flag !== "connected") {
+        setBusy(null);
+        return;
+      }
+
+      // quickbooks=connected is only a hint. Prove it.
+      const valid = fresh && fresh.status === "connected" && fresh.tokenSecretPresent;
+      if (!valid) {
+        setCallbackError(
+          `We returned from Intuit, but ExitBridge could not verify the connection. Reference: connection_not_verified${cid ? ` / ${cid}` : ""}`,
+        );
+        setBusy(null);
+        return;
+      }
+
+      let snapshots = await companyInfoSnapshotCount(fresh.id);
+      if (snapshots === 0) {
+        try {
+          const verified = await verifyCompanyInfo();
+          if (cancelled) return;
+          setConn(verified);
+          snapshots = await companyInfoSnapshotCount(verified.id);
+        } catch {
+          /* handled below */
+        }
+      }
+      if (cancelled) return;
+      if (snapshots > 0) {
+        setCallbackError(null);
+        toast.success("QuickBooks connected successfully");
+      } else {
+        setCallbackError(
+          `We returned from Intuit, but ExitBridge could not verify the connection. Reference: company_info_fetch_failed${cid ? ` / ${cid}` : ""}`,
+        );
+      }
+      setBusy(null);
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [reload]);
+
   const startOAuth = async () => {
     setBusy("start");
+    setCallbackError(null);
     try {
       const { authorizationUrl } = await startQuickBooksOAuth();
       window.location.href = authorizationUrl;
     } catch (e) {
-      toast.error((e as Error).message || "Could not start QuickBooks connect");
+      toast.error((e as Error).message || "Could not start the QuickBooks connection");
       setBusy(null);
     }
   };
@@ -73,8 +174,7 @@ export function ConnectPage() {
   const verify = async () => {
     setBusy("verify");
     try {
-      const fresh = await verifyCompanyInfo();
-      setConn(fresh);
+      setConn(await verifyCompanyInfo());
       toast.success("QuickBooks connection verified");
     } catch (e) {
       toast.error((e as Error).message || "Verification failed");
@@ -83,11 +183,12 @@ export function ConnectPage() {
     }
   };
 
-  const disconnect = async () => {
+  const doDisconnect = async () => {
+    setConfirmDisconnect(false);
     setBusy("disconnect");
     try {
       await disconnectQuickBooks();
-      setConn(await loadConnectionSummary());
+      await reload();
       toast.success("QuickBooks disconnected");
     } catch (e) {
       toast.error((e as Error).message || "Could not disconnect");
@@ -96,29 +197,38 @@ export function ConnectPage() {
     }
   };
 
-  const isConnected = conn?.status === "connected" && conn.tokenSecretPresent;
-
-  const mockConnect = () => {
-    setLoading(true);
-    setTimeout(async () => {
-      setState({ qbConnected: true, financials: MOCK });
-      try { await persistFinancials(MOCK, "quickbooks_mock", { mock: true }); }
-      catch (err) { toast.error((err as Error).message); }
-      setLoading(false);
-      toast.success("Sample financials loaded");
+  const useSampleData = async () => {
+    setBusy("sample");
+    try {
+      setState({ qbConnected: false, financials: SAMPLE_FINANCIALS });
+      await persistFinancials(SAMPLE_FINANCIALS, "quickbooks_mock", { sample: true });
+      toast.success("Sample data loaded");
       navigate({ to: "/seller/business" });
-    }, 900);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
   };
+
+  const isConnected = conn?.status === "connected" && conn.tokenSecretPresent;
 
   return (
     <SellerLayout>
       <div className="mb-8">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">Connect your financials</h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
-          QuickBooks is the fastest, most accurate path. You can also upload
-          statements or enter rough numbers manually.
+          QuickBooks is the fastest, most accurate path. You can also upload statements, enter rough
+          numbers manually, or explore ExitBridge with clearly-labelled sample data.
         </p>
       </div>
+
+      {callbackError && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <p data-testid="qb-callback-error">{callbackError}</p>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-wrap gap-2">
         {[
@@ -133,7 +243,9 @@ export function ConnectPage() {
               key={t.id}
               onClick={() => setMode(t.id as typeof mode)}
               className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
-                active ? "border-navy bg-navy text-navy-foreground dark:border-gold dark:bg-gold dark:text-gold-foreground" : "border-border bg-background text-muted-foreground hover:text-foreground"
+                active
+                  ? "border-navy bg-navy text-navy-foreground dark:border-gold dark:bg-gold dark:text-gold-foreground"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
               }`}
             >
               <Icon className="h-4 w-4" /> {t.label}
@@ -145,7 +257,7 @@ export function ConnectPage() {
       {mode === "qb" && (
         <div className="rounded-2xl border border-border bg-card p-8 shadow-elegant">
           {isConnected ? (
-            <div>
+            <div data-testid="qb-connected-state">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="inline-flex items-center gap-2 rounded-full bg-success/10 px-4 py-2 text-sm font-medium text-success">
                   <CheckCircle2 className="h-4 w-4" /> QuickBooks connected
@@ -162,15 +274,25 @@ export function ConnectPage() {
                 <Row label="Connected">{fmtDate(conn?.connectedAt)}</Row>
                 <Row label="Last verified">{fmtDate(conn?.lastSyncedAt)}</Row>
               </dl>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button onClick={verify} disabled={busy !== null} className="bg-gold text-gold-foreground hover:bg-gold/90">
-                  {busy === "verify" ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying…</> : "Verify connection"}
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={verify}
+                  disabled={busy !== null}
+                  className="bg-gold text-gold-foreground hover:bg-gold/90"
+                >
+                  {busy === "verify" ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying…
+                    </>
+                  ) : (
+                    "Verify connection"
+                  )}
                 </Button>
                 <Button variant="outline" onClick={() => navigate({ to: "/seller/business" })}>
                   Continue to business details
                 </Button>
                 <button
-                  onClick={disconnect}
+                  onClick={() => setConfirmDisconnect(true)}
                   disabled={busy !== null}
                   className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
                 >
@@ -179,29 +301,46 @@ export function ConnectPage() {
               </div>
             </div>
           ) : (
-            <div className="flex items-start gap-4">
+            <div className="flex items-start gap-4" data-testid="qb-disconnected-state">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-navy text-navy-foreground dark:bg-gold dark:text-gold-foreground">
                 <PlugZap className="h-6 w-6" />
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="text-xl font-semibold text-foreground">Connect QuickBooks</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  ExitBridge connects to your QuickBooks company to retrieve financial
-                  information used in your confidential analysis. ExitBridge does not create,
-                  edit, or delete anything in QuickBooks.
+                  ExitBridge connects to your QuickBooks company to retrieve financial information
+                  used in your confidential analysis. ExitBridge does not create, edit, or delete
+                  anything in QuickBooks.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <Button
                     size="lg"
                     onClick={startOAuth}
                     disabled={busy !== null}
+                    data-testid="qb-connect-button"
                     className="bg-gold text-gold-foreground hover:bg-gold/90"
                   >
                     {busy === "start" ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Redirecting to Intuit…</>
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Redirecting to Intuit…
+                      </>
                     ) : (
                       <>Connect QuickBooks securely</>
                     )}
+                  </Button>
+                  <Button variant="outline" onClick={() => setMode("upload")}>
+                    Upload statements
+                  </Button>
+                  <Button variant="outline" onClick={() => setMode("manual")}>
+                    Enter manually
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={useSampleData}
+                    disabled={busy !== null}
+                    data-testid="qb-sample-button"
+                  >
+                    {busy === "sample" ? "Loading sample data…" : "Use sample data for demonstration"}
                   </Button>
                 </div>
                 <div className="mt-8 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
@@ -210,11 +349,6 @@ export function ConnectPage() {
                   <Reassurance>Disconnect at any time</Reassurance>
                   <Reassurance>Nothing shared with buyers without your approval</Reassurance>
                 </div>
-                {qb && (
-                  <p className="mt-6 inline-flex items-center gap-2 text-xs text-muted-foreground">
-                    <ShieldCheck className="h-3.5 w-3.5" /> Sample QuickBooks financials are loaded locally for preview.
-                  </p>
-                )}
               </div>
             </div>
           )}
@@ -225,18 +359,34 @@ export function ConnectPage() {
         <UploadOrManual
           title="Upload financial statements"
           body="Drop a QuickBooks export, P&L PDF, or CSV. We'll parse the essentials."
-          onSample={mockConnect}
-          loading={loading}
+          onSample={useSampleData}
+          loading={busy === "sample"}
         />
       )}
       {mode === "manual" && (
         <UploadOrManual
           title="Enter rough numbers"
           body="Approximate is fine to start — you can refine later."
-          onSample={mockConnect}
-          loading={loading}
+          onSample={useSampleData}
+          loading={busy === "sample"}
         />
       )}
+
+      <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect QuickBooks?</AlertDialogTitle>
+            <AlertDialogDescription>
+              ExitBridge will revoke its Intuit access and delete the stored credentials. Your
+              business profile, financials, valuation, teaser, and NDA activity are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doDisconnect}>Disconnect</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SellerLayout>
   );
 }
@@ -258,7 +408,17 @@ function Reassurance({ children }: { children: React.ReactNode }) {
   );
 }
 
-function UploadOrManual({ title, body, onSample, loading }: { title: string; body: string; onSample: () => void; loading: boolean }) {
+function UploadOrManual({
+  title,
+  body,
+  onSample,
+  loading,
+}: {
+  title: string;
+  body: string;
+  onSample: () => void;
+  loading: boolean;
+}) {
   return (
     <div className="rounded-2xl border border-border bg-card p-8 shadow-elegant">
       <h2 className="text-xl font-semibold text-foreground">{title}</h2>
@@ -270,9 +430,16 @@ function UploadOrManual({ title, body, onSample, loading }: { title: string; bod
         <Button
           onClick={onSample}
           disabled={loading}
+          data-testid="qb-sample-button-alt"
           className="bg-navy text-navy-foreground hover:bg-navy/90 dark:bg-gold dark:text-gold-foreground"
         >
-          {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…</> : "Continue with sample data"}
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
+            </>
+          ) : (
+            "Continue with sample data"
+          )}
         </Button>
       </div>
     </div>

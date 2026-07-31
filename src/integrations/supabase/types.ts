@@ -796,6 +796,29 @@ export type Database = {
     }
     Functions: {
       owns_business: { Args: { _business_id: string }; Returns: boolean }
+      service_qb_consume_oauth_state: {
+        Args: { _state_hash: string }
+        Returns: {
+          business_id: string
+          seller_id: string
+        }[]
+      }
+      service_qb_create_token_secret: {
+        Args: { _bundle: Json; _name: string }
+        Returns: string
+      }
+      service_qb_delete_token_secret: {
+        Args: { _secret_id: string }
+        Returns: undefined
+      }
+      service_qb_get_token_secret: {
+        Args: { _secret_id: string }
+        Returns: Json
+      }
+      service_qb_update_token_secret: {
+        Args: { _bundle: Json; _secret_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

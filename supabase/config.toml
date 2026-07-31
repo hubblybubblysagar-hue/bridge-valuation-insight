@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.quickbooks-disconnect]
 verify_jwt = true
+
+[functions.qa-quickbooks-status]
+verify_jwt = true

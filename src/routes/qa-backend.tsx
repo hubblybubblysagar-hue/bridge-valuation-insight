@@ -28,7 +28,10 @@ import {
   persistValuation,
   submitNdaRequest,
 } from "@/lib/persist";
+import { BUILD_INFO } from "@/lib/build-info";
 import {
+  loadQaQuickBooksStatus,
+  type QaQuickBooksStatus,
   countCompanyInfoSnapshots,
   disconnectQuickBooks,
   loadConnectionSummary,
@@ -63,6 +66,7 @@ function QaBackendPage() {
   const [qbConn, setQbConn] = useState<QbConnectionSummary | null>(null);
   const [qbSnapshots, setQbSnapshots] = useState<number>(0);
   const [qbBusy, setQbBusy] = useState<string | null>(null);
+  const [qaStatus, setQaStatus] = useState<QaQuickBooksStatus | null>(null);
 
   const log = (ok: boolean, msg: string) =>
     setLogs((l) => [{ ts: new Date().toLocaleTimeString(), ok, msg }, ...l].slice(0, 40));
@@ -204,6 +208,35 @@ function QaBackendPage() {
             <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
               QuickBooks connection QA
             </h2>
+            <dl className="mt-4 grid gap-2 sm:grid-cols-3 text-sm">
+              <QbRow label="Build commit">{BUILD_INFO.commit}</QbRow>
+              <QbRow label="Build time">{BUILD_INFO.builtAt}</QbRow>
+              <QbRow label="App environment">{BUILD_INFO.environment}</QbRow>
+            </dl>
+            <div className="mt-4 rounded-lg border border-border bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  qa-quickbooks-status (safe aggregate)
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={qbBusy !== null}
+                  onClick={() =>
+                    runQb("qa-quickbooks-status", async () => {
+                      const s = await loadQaQuickBooksStatus();
+                      setQaStatus(s);
+                      return `companyInfoRetrieved=${s.companyInfoRetrieved} snapshots=${s.companyInfoSnapshotCount}`;
+                    })
+                  }
+                >
+                  Fetch status
+                </Button>
+              </div>
+              <pre className="mt-3 overflow-x-auto text-xs text-muted-foreground">
+                {qaStatus ? JSON.stringify(qaStatus, null, 2) : "Not fetched yet."}
+              </pre>
+            </div>
             <dl className="mt-4 grid gap-2 sm:grid-cols-2 text-sm">
               <QbRow label="Environment">{qbConn?.environment ?? "—"}</QbRow>
               <QbRow label="Status">{qbConn?.status ?? "—"}</QbRow>

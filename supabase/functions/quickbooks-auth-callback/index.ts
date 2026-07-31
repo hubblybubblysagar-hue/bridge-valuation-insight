@@ -1,21 +1,33 @@
 // Intuit OAuth redirect target. verify_jwt=false; security is enforced by
-// one-time state validation via private.consume_quickbooks_oauth_state.
+// one-time state validation via public.service_qb_consume_oauth_state.
+// No browser CORS is needed here — Intuit performs a top-level redirect.
 import {
-  corsHeaders,
+  consumeOAuthState,
   correlationId,
   createTokenSecret,
   exchangeAuthorizationCode,
   loadConfig,
   logSafe,
   maskRealm,
+  QB_ERROR,
+  type QbErrorCode,
   quickbooksGet,
   safeError,
+  safeLastError,
   serviceRoleClient,
   sha256Hex,
+  toErrorCode,
+  updateTokenSecret,
 } from "../_shared/quickbooks.ts";
 
 function redirect(url: string): Response {
   return new Response(null, { status: 302, headers: { Location: url } });
+}
+
+function fail(appUrl: string, code: QbErrorCode, cid: string): Response {
+  return redirect(
+    `${appUrl}/seller/connect?quickbooks=error&code=${encodeURIComponent(code)}&cid=${cid}`,
+  );
 }
 
 Deno.serve(async (req) => {
@@ -31,38 +43,31 @@ Deno.serve(async (req) => {
     const oauthError = url.searchParams.get("error");
 
     if (!state) {
-      logSafe({ correlation_id: cid, action: "oauth_callback", status: "missing_state" });
-      return redirect(`${appUrl}/seller/connect?quickbooks=error`);
+      logSafe({ correlation_id: cid, action: "oauth_callback", error_code: QB_ERROR.oauthStateInvalid });
+      return fail(appUrl, QB_ERROR.oauthStateInvalid, cid);
     }
 
     const admin = serviceRoleClient();
     const stateHash = await sha256Hex(state);
-    const { data: consumed, error: consumeErr } = await admin.rpc(
-      "consume_quickbooks_oauth_state" as never,
-      { _state_hash: stateHash } as never,
-    );
-    if (consumeErr) throw consumeErr;
-    const row = Array.isArray(consumed) ? consumed[0] : consumed;
-    if (!row || !row.seller_id) {
-      logSafe({ correlation_id: cid, action: "oauth_callback", status: "invalid_state" });
-      return redirect(`${appUrl}/seller/connect?quickbooks=error`);
+    const row = await consumeOAuthState(admin, stateHash);
+    if (!row) {
+      logSafe({ correlation_id: cid, action: "oauth_callback", error_code: QB_ERROR.oauthStateExpiredOrReused });
+      return fail(appUrl, QB_ERROR.oauthStateExpiredOrReused, cid);
     }
-    const sellerId = row.seller_id as string;
-    const businessId = (row.business_id as string | null) ?? null;
+    const sellerId = row.seller_id;
+    const businessId = row.business_id;
 
     if (oauthError) {
       logSafe({ correlation_id: cid, action: "oauth_callback", seller_id: sellerId, status: "denied" });
-      return redirect(`${appUrl}/seller/connect?quickbooks=denied`);
+      return redirect(`${appUrl}/seller/connect?quickbooks=denied&cid=${cid}`);
     }
     if (!code || !realmId) {
-      logSafe({ correlation_id: cid, action: "oauth_callback", seller_id: sellerId, status: "missing_params" });
-      return redirect(`${appUrl}/seller/connect?quickbooks=error`);
+      return fail(appUrl, QB_ERROR.oauthStateInvalid, cid);
     }
 
-    // Exchange auth code
+    // Exchange auth code (throws QbError token_exchange_failed).
     const bundle = await exchangeAuthorizationCode(cfg, code);
 
-    // Upsert connection metadata (without token secret yet)
     const { data: existing } = await admin
       .from("quickbooks_connections")
       .select("id, token_secret_id")
@@ -76,20 +81,12 @@ Deno.serve(async (req) => {
     if (existing) {
       connectionId = existing.id;
       if (existing.token_secret_id) {
-        // Update existing vault secret
-        await admin.rpc("update_quickbooks_token_secret" as never, {
-          _secret_id: existing.token_secret_id,
-          _bundle: bundle as unknown as Record<string, unknown>,
-        } as never);
+        await updateTokenSecret(admin, existing.token_secret_id, bundle);
         secretId = existing.token_secret_id;
       } else {
-        secretId = await createTokenSecret(
-          admin,
-          bundle,
-          `qb_tokens_${sellerId}_${realmId}`,
-        );
+        secretId = await createTokenSecret(admin, bundle, `qb_tokens_${sellerId}_${realmId}`);
       }
-      await admin
+      const { error: updErr } = await admin
         .from("quickbooks_connections")
         .update({
           business_id: businessId,
@@ -104,12 +101,12 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         })
         .eq("id", connectionId);
+      if (updErr) {
+        logSafe({ correlation_id: cid, action: "oauth_callback", error_code: QB_ERROR.connectionUpsertFailed });
+        return fail(appUrl, QB_ERROR.connectionUpsertFailed, cid);
+      }
     } else {
-      secretId = await createTokenSecret(
-        admin,
-        bundle,
-        `qb_tokens_${sellerId}_${realmId}`,
-      );
+      secretId = await createTokenSecret(admin, bundle, `qb_tokens_${sellerId}_${realmId}`);
       const { data: inserted, error: insErr } = await admin
         .from("quickbooks_connections")
         .insert({
@@ -126,19 +123,21 @@ Deno.serve(async (req) => {
         })
         .select("id")
         .single();
-      if (insErr) throw insErr;
+      if (insErr || !inserted) {
+        logSafe({ correlation_id: cid, action: "oauth_callback", error_code: QB_ERROR.connectionUpsertFailed });
+        return fail(appUrl, QB_ERROR.connectionUpsertFailed, cid);
+      }
       connectionId = inserted.id;
     }
 
-    // Fetch CompanyInfo (GET-only)
-    let companyName: string | null = null;
+    // CompanyInfo proof (GET-only).
     try {
       const info = await quickbooksGet(cfg, bundle.access_token, realmId, `/companyinfo/${realmId}`) as {
         CompanyInfo?: { CompanyName?: string; LegalName?: string };
       };
-      companyName = info?.CompanyInfo?.CompanyName ?? info?.CompanyInfo?.LegalName ?? null;
+      const companyName = info?.CompanyInfo?.CompanyName ?? info?.CompanyInfo?.LegalName ?? null;
 
-      await admin.from("quickbooks_report_snapshots").insert({
+      const { error: snapErr } = await admin.from("quickbooks_report_snapshots").insert({
         connection_id: connectionId,
         business_id: businessId!,
         report_type: "company_info",
@@ -150,20 +149,26 @@ Deno.serve(async (req) => {
         },
         fetched_at: new Date().toISOString(),
       });
+      if (snapErr) {
+        await admin
+          .from("quickbooks_connections")
+          .update({ last_error: safeLastError(QB_ERROR.companyInfoSnapshotFailed, cid) })
+          .eq("id", connectionId);
+        return fail(appUrl, QB_ERROR.companyInfoSnapshotFailed, cid);
+      }
 
       await admin
         .from("quickbooks_connections")
-        .update({
-          company_name: companyName,
-          last_synced_at: new Date().toISOString(),
-        })
+        .update({ company_name: companyName, last_synced_at: new Date().toISOString(), last_error: null })
         .eq("id", connectionId);
     } catch (infoErr) {
-      // Connection still valid; record safe error but keep status connected.
+      const code = toErrorCode(infoErr, QB_ERROR.companyInfoFetchFailed);
       await admin
         .from("quickbooks_connections")
-        .update({ last_error: `companyinfo: ${safeError(infoErr)}` })
+        .update({ status: "needs_attention", last_error: safeLastError(code, cid) })
         .eq("id", connectionId);
+      logSafe({ correlation_id: cid, action: "oauth_callback", error_code: code });
+      return fail(appUrl, code, cid);
     }
 
     logSafe({
@@ -174,9 +179,10 @@ Deno.serve(async (req) => {
       realm_masked: maskRealm(realmId),
       status: "connected",
     });
-    return redirect(`${appUrl}/seller/connect?quickbooks=connected`);
+    return redirect(`${appUrl}/seller/connect?quickbooks=connected&cid=${cid}`);
   } catch (e) {
-    logSafe({ correlation_id: cid, action: "oauth_callback", status: "error", error: safeError(e) });
-    return redirect(`${appUrl || ""}/seller/connect?quickbooks=error`);
+    const code = toErrorCode(e, QB_ERROR.connectionUpsertFailed);
+    logSafe({ correlation_id: cid, action: "oauth_callback", error_code: code, error: safeError(e) });
+    return fail(appUrl || "", code, cid);
   }
 });

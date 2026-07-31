@@ -202,6 +202,41 @@ Supabase calls. Must stay this way.
 
 ## 11. Change Log
 
+- **2026-08-01 — Phase C: QuickBooks repair + automated QA infrastructure**
+  - **Root cause fixed:** the edge functions called Vault/state helpers that
+    exist only in the `private` schema, but PostgREST resolves RPCs in
+    `public`, so every Vault call failed and the callback always redirected
+    with `quickbooks=error`. Migration
+    `supabase/migrations/20260731_qb_service_bridges.sql` adds five
+    `public.service_qb_*` SECURITY DEFINER bridges (create/update/get/delete
+    token secret, consume oauth state), executable by `service_role` only.
+  - `_shared/quickbooks.ts`: CORS allow-list (no wildcard), stable machine
+    error codes (`QB_ERROR.*`), correlation ids in every log line, and the
+    GET-only Data API rule enforced by having no write helper at all.
+  - New edge function `qa-quickbooks-status` returns aggregate booleans and
+    counts only — never realm ids or tokens.
+  - `src/routes/seller.connect.tsx` rewritten: `loadConnectionSummary()` is
+    the single source of truth, sample data is explicitly labelled and never
+    creates a connection, and callback success is only shown after the
+    CompanyInfo snapshot is verified. Test hooks: `qb-connect-button`,
+    `qb-sample-button`, `qb-connected-state`, `qb-disconnected-state`,
+    `qb-callback-error`.
+  - **Automated testing** (see `docs/AUTOMATED_QA_SETUP.md`):
+    - pgTAP — `supabase/tests/database/quickbooks_bridges_test.sql`,
+      `quickbooks_rls_test.sql`.
+    - Deno — `supabase/functions/tests/quickbooks_shared_test.ts` (17 tests,
+      `fetch` stubbed; no network).
+    - Playwright — `tests/e2e/{public,seller,buyer}`; `public` needs no
+      credentials, `seller`/`buyer` self-skip without QA account secrets.
+    - CI — `.github/workflows/ci.yml` (typecheck, lint, build, Deno, pgTAP,
+      Playwright) and `.github/workflows/quickbooks-smoke.yml` (daily
+      read-only sandbox connectivity check).
+  - New env/secrets for CI only: `QA_BASE_URL`, `QA_SELLER_EMAIL`,
+    `QA_SELLER_PASSWORD`, `QA_BUYER_EMAIL`, `QA_BUYER_PASSWORD`,
+    `QA_STATUS_TOKEN`.
+
+
+
 - **2026-07-21 — Phase B: real QuickBooks OAuth (sandbox)**
   - Deployed 4 edge functions: `quickbooks-auth-start` (JWT on),
     `quickbooks-auth-callback` (JWT off — Intuit redirect target),
