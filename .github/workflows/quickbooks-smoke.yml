@@ -1,0 +1,54 @@
+name: QuickBooks sandbox smoke
+
+# Daily read-only connectivity check against the QA seller's sandbox
+# connection. It only calls the safe aggregate status endpoint — never
+# tokens, never a real seller, never a write to Intuit.
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: QuickBooks connectivity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip when QA secrets are unset
+        id: gate
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.QA_STATUS_TOKEN }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "QA secrets not configured — skipping."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Call qa-quickbooks-status
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          QA_STATUS_TOKEN: ${{ secrets.QA_STATUS_TOKEN }}
+        run: |
+          set -euo pipefail
+          body=$(curl -sS --fail-with-body --max-time 30 \
+            -X POST "$SUPABASE_URL/functions/v1/qa-quickbooks-status" \
+            -H "Authorization: Bearer $QA_STATUS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "$body" | jq .
+          # Fail loudly if the endpoint reports a broken or stale connection.
+          echo "$body" | jq -e '.ok == true' > /dev/null
+          echo "$body" | jq -e '.connection.status == "connected"' > /dev/null
+          echo "$body" | jq -e '.connection.tokenSecretPresent == true' > /dev/null
+          echo "$body" | jq -e '.snapshots.companyInfoCount >= 1' > /dev/null
+          # The response must never contain raw credentials or realm ids.
+          if echo "$body" | grep -Eiq '"(access_token|refresh_token|realm_id)"'; then
+            echo "::error::status endpoint leaked sensitive fields"
+            exit 1
+          fi
+
+      - name: Report failure
+        if: failure()
+        run: echo "::error::QuickBooks sandbox smoke test failed — check Edge Function logs."
