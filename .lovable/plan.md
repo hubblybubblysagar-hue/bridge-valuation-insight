@@ -27,17 +27,24 @@ https://lrpfwqqusuhwtumoqmwy.supabase.co/functions/v1/quickbooks-auth-callback
 
 No trailing slash. This exact string must appear in the Intuit app's Redirect URIs list **on the same key tab (Development keys for sandbox)** whose Client ID is stored in `INTUIT_CLIENT_ID`.
 
+## Status: redirect URI fixed, consent screen reached
+
+The authorize screen now reads "Connecting Exit Bridge Dev to Sandbox Company_US_1", which confirms the redirect URI is registered, the Development (sandbox) keys are in use, and a sandbox company exists. Steps 1-3 below are done.
+
 ## Steps to resolve (no code changes)
 
-1. Intuit Developer Portal, your app, **Settings, Redirect URIs, Development tab** (the screen in your screenshot): click **Add URI**, paste the callback URL above, and **Save**. Keep the Playground URI if you want to keep testing there; up to 25 are allowed.
-2. **Keys and credentials, Development tab**: copy the Client ID and Client Secret from that same tab and confirm the ExitBridge secrets match:
+1. ~~Add the callback URL to Settings, Redirect URIs, Development tab.~~ Done.
+2. ~~Confirm secrets match the Development key tab.~~ Effectively confirmed by the working authorize request:
 
    - `INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` = Development keys
    - `INTUIT_REDIRECT_URI` = the exact URL above
    - `INTUIT_ENVIRONMENT` = `sandbox`
-   - `EXITBRIDGE_APP_URL` = the app origin you actually browse from (preview or published), no trailing slash — otherwise the callback bounce and CORS reject the browser call
-3. Intuit Developer Portal, **Sandboxes**: confirm at least one sandbox company exists under the same developer account you sign in with during the flow. The "dummy account" must be the sandbox company user, not a personal QuickBooks account — signing in with a non-sandbox account against Development keys is the second common cause of the block screen.
-4. Retry Connect QuickBooks and, if it still fails, read the failure by correlation ID in the Edge Function logs for `quickbooks-auth-start` and `quickbooks-auth-callback`; the codes are stable (`oauth_state_invalid`, `token_exchange_failed`, etc.).
+   - `EXITBRIDGE_APP_URL` = the app origin you actually browse from (preview or published), no trailing slash — this is the one still worth double-checking, since it controls where the callback sends you back to
+3. ~~Confirm a sandbox company exists.~~ Done — Sandbox Company_US_1.
+4. Click **Connect**. Expected outcome: Intuit redirects to our callback, which exchanges the code, stores tokens in Vault, fetches CompanyInfo, and returns you to `/seller/connect?quickbooks=connected`. The page should then show "QuickBooks connected", the Sandbox badge, company name, and a masked realm ID.
+
+   If instead you land on `/seller/connect?quickbooks=error&code=...`, tell me the `code` and `cid` values — they map to stable error codes (`token_exchange_failed`, `company_info_fetch_failed`, `oauth_state_expired_or_reused`) and pinpoint which step failed. If the redirect lands somewhere unexpected, `EXITBRIDGE_APP_URL` is pointing at a different origin than the one you are browsing.
+
 
 ## Loading sample data
 
