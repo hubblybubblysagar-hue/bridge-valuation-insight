@@ -6,12 +6,16 @@ The screenshot error is not an app bug:
 
 > The redirect_uri query parameter value is invalid. Make sure it is listed in the Redirect URIs section on your app's keys tab and matches it exactly.
 
-Intuit rejected the authorize request before any sign-in completed, because the `redirect_uri` ExitBridge sent does not byte-for-byte match a Redirect URI registered on the Intuit app's keys tab. Our code sends whatever is stored in the `INTUIT_REDIRECT_URI` secret, verbatim, into the authorize URL. So exactly one of two things is off:
+Intuit rejected the authorize request before any sign-in completed, because the `redirect_uri` ExitBridge sent does not match a Redirect URI registered on the Intuit app's keys tab. Our code sends whatever is stored in the `INTUIT_REDIRECT_URI` secret, verbatim, into the authorize URL.
 
-1. The value in `INTUIT_REDIRECT_URI` is not registered in the Intuit dashboard (or differs by trailing slash, http vs https, or path).
-2. The value is registered under the *other* key set — Intuit apps have separate Development (sandbox) and Production keys, each with their own Client ID, Client Secret, and Redirect URI list. Mixing a production Client ID with a sandbox-registered redirect produces this exact error.
+**Your Developer Portal screenshot confirms this.** Settings, Redirect URIs, Development tab contains exactly one entry:
 
-Item 2 also explains "sometimes redirected to one of two different pages": sandbox vs production authorize flows show different company pickers.
+```text
+https://developer.intuit.com/v2/OAuth2Playground/RedirectUrl
+```
+
+That is the OAuth Playground URL, not ExitBridge's callback. Nothing in that list can receive our flow, so every Connect attempt fails at the authorize step regardless of which account you sign in with. The "sometimes two different pages" behavior is just Intuit showing the account chooser before the error on some attempts.
+
 
 ## The value that must match
 
@@ -25,8 +29,9 @@ No trailing slash. This exact string must appear in the Intuit app's Redirect UR
 
 ## Steps to resolve (no code changes)
 
-1. Intuit Developer Portal, your app, **Keys & credentials, Development tab**: add the URL above to Redirect URIs and save. Copy that tab's Client ID and Client Secret.
-2. Confirm the ExitBridge secrets match that tab:
+1. Intuit Developer Portal, your app, **Settings, Redirect URIs, Development tab** (the screen in your screenshot): click **Add URI**, paste the callback URL above, and **Save**. Keep the Playground URI if you want to keep testing there; up to 25 are allowed.
+2. **Keys and credentials, Development tab**: copy the Client ID and Client Secret from that same tab and confirm the ExitBridge secrets match:
+
    - `INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` = Development keys
    - `INTUIT_REDIRECT_URI` = the exact URL above
    - `INTUIT_ENVIRONMENT` = `sandbox`
