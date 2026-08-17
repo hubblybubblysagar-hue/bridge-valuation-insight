@@ -29,8 +29,9 @@ No trailing slash. This exact string must appear in the Intuit app's Redirect UR
 
 ## Steps to resolve (no code changes)
 
-1. Intuit Developer Portal, your app, **Keys & credentials, Development tab**: add the URL above to Redirect URIs and save. Copy that tab's Client ID and Client Secret.
-2. Confirm the ExitBridge secrets match that tab:
+1. Intuit Developer Portal, your app, **Settings, Redirect URIs, Development tab** (the screen in your screenshot): click **Add URI**, paste the callback URL above, and **Save**. Keep the Playground URI if you want to keep testing there; up to 25 are allowed.
+2. **Keys and credentials, Development tab**: copy the Client ID and Client Secret from that same tab and confirm the ExitBridge secrets match:
+
    - `INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` = Development keys
    - `INTUIT_REDIRECT_URI` = the exact URL above
    - `INTUIT_ENVIRONMENT` = `sandbox`
