@@ -12,9 +12,20 @@ This narrows the issue to the runtime `INTUIT_CLIENT_SECRET`: it is stale, copie
 
 The Development client secret is visible in the uploaded Keys & Credentials screenshot. Treat it as compromised even if it was previously correct.
 
-1. In Intuit Developer Portal → **Keys & credentials → Development**, click **Rotate secret**.
-2. Save the newly issued Development secret into ExitBridge's existing `INTUIT_CLIENT_SECRET` runtime secret using the secure secret form. Do not paste it into chat, GitHub, source code, or a `.env` file.
-3. Do not change the Client ID, redirect URI, environment, or Supabase callback URL; those are now demonstrably reaching the correct stages.
+### Exactly where to make the change
+
+1. Return to **Intuit Developer → Exit Bridge Dev → Keys & credentials → Development** — the page shown in `image-16.png`.
+2. Click **Rotate secret** beside the Development Client secret and confirm the rotation.
+3. Copy the newly generated secret once. Do not take or upload another screenshot while **Show credentials** is enabled.
+4. Return to this Lovable chat. After this plan is approved, Lovable will open a secure replacement form specifically for `INTUIT_CLIENT_SECRET`; paste the new value there. It goes directly to the project's Supabase runtime secrets and is not exposed in chat or source control.
+5. Retry the connection only after the secure form confirms the replacement.
+
+### What not to change
+
+- Do **not** add the Intuit secret under GitHub **Actions**, **Agents**, or **Codespaces**. The pages in `image-21.png` through `image-23.png` configure GitHub jobs, not the live Supabase callback.
+- Do **not** change the five existing `QA_*` GitHub Actions secrets. They are for automated QA login and are unrelated to Intuit OAuth.
+- Leave the Development Client ID, App ID, redirect URI, environment, App URLs, and GitHub Pages settings unchanged. The registered callback in `image-28.png` is correct.
+- The Intuit Developer account used to administer the app does not need to match the ExitBridge seller or sandbox-company login. The failure occurs after consent, when ExitBridge authenticates its app credentials to Intuit.
 
 ## Verification pass
 
