@@ -469,6 +469,7 @@ export type Database = {
         Row: {
           accounting_method: string | null
           business_id: string
+          checksum: string | null
           connection_id: string
           created_at: string
           fetched_at: string | null
@@ -477,11 +478,17 @@ export type Database = {
           period_end: string | null
           period_start: string | null
           raw_payload: Json
+          report_basis: string | null
           report_type: string
+          row_count: number | null
+          source_generated_at: string | null
+          status: string
+          sync_run_id: string | null
         }
         Insert: {
           accounting_method?: string | null
           business_id: string
+          checksum?: string | null
           connection_id: string
           created_at?: string
           fetched_at?: string | null
@@ -490,11 +497,17 @@ export type Database = {
           period_end?: string | null
           period_start?: string | null
           raw_payload?: Json
+          report_basis?: string | null
           report_type: string
+          row_count?: number | null
+          source_generated_at?: string | null
+          status?: string
+          sync_run_id?: string | null
         }
         Update: {
           accounting_method?: string | null
           business_id?: string
+          checksum?: string | null
           connection_id?: string
           created_at?: string
           fetched_at?: string | null
@@ -503,7 +516,12 @@ export type Database = {
           period_end?: string | null
           period_start?: string | null
           raw_payload?: Json
+          report_basis?: string | null
           report_type?: string
+          row_count?: number | null
+          source_generated_at?: string | null
+          status?: string
+          sync_run_id?: string | null
         }
         Relationships: [
           {
@@ -518,6 +536,83 @@ export type Database = {
             columns: ["connection_id"]
             isOneToOne: false
             referencedRelation: "quickbooks_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quickbooks_report_snapshots_sync_run_id_fkey"
+            columns: ["sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "quickbooks_sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quickbooks_sync_runs: {
+        Row: {
+          business_id: string
+          completed_at: string | null
+          connection_id: string
+          created_at: string
+          error_codes: string[]
+          failed_count: number
+          id: string
+          requested_report_types: string[]
+          seller_id: string
+          started_at: string
+          status: string
+          successful_count: number
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          completed_at?: string | null
+          connection_id: string
+          created_at?: string
+          error_codes?: string[]
+          failed_count?: number
+          id?: string
+          requested_report_types?: string[]
+          seller_id: string
+          started_at?: string
+          status?: string
+          successful_count?: number
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          completed_at?: string | null
+          connection_id?: string
+          created_at?: string
+          error_codes?: string[]
+          failed_count?: number
+          id?: string
+          requested_report_types?: string[]
+          seller_id?: string
+          started_at?: string
+          status?: string
+          successful_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quickbooks_sync_runs_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quickbooks_sync_runs_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "quickbooks_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quickbooks_sync_runs_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
