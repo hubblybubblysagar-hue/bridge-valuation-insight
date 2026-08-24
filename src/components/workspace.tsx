@@ -84,7 +84,7 @@ export function FlowProgress({ steps }: { steps: FlowStep[] }) {
       {steps.map((step, i) => (
         <li key={step.index} className="flex shrink-0 items-center">
           <Link
-            to={to as never}
+            to={step.to as never}
             className="group flex items-center gap-2 rounded-full px-2 py-1"
             data-step-state={step.state}
           >

@@ -8,16 +8,28 @@ import {
   LogOut,
   Users,
   UserCircle,
+  Vault,
 } from "lucide-react";
 import { Logo } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
+import { FlowProgress, type FlowStep } from "./workspace";
 import { Button } from "@/components/ui/button";
 import { signOut, useAppState } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 
-type SellerPath = "/seller" | "/seller/valuation" | "/seller/teaser" | "/seller/buyer-interest" | "/seller/account";
+type SellerPath =
+  | "/seller"
+  | "/seller/connect"
+  | "/seller/financial-vault"
+  | "/seller/financial-review"
+  | "/seller/valuation"
+  | "/seller/teaser"
+  | "/seller/buyer-interest"
+  | "/seller/account";
+
 const NAV: { to: SellerPath; label: string; icon: typeof LayoutDashboard; exact?: boolean }[] = [
   { to: "/seller", label: "Overview", icon: LayoutDashboard, exact: true },
+  { to: "/seller/financial-vault", label: "Financial Vault", icon: Vault },
   { to: "/seller/valuation", label: "My Valuation", icon: FileBarChart },
   { to: "/seller/teaser", label: "My Teaser", icon: FileText },
   { to: "/seller/buyer-interest", label: "Buyer Interest", icon: Users },
@@ -26,6 +38,12 @@ const NAV: { to: SellerPath; label: string; icon: typeof LayoutDashboard; exact?
 
 export function SellerLayout({ children }: { children: ReactNode }) {
   const user = useAppState((s) => s.user);
+  const qb = useAppState((s) => s.qbConnected);
+  const provenance = useAppState((s) => s.financialsProvenance);
+  const financials = useAppState((s) => s.financials);
+  const valuation = useAppState((s) => s.valuation);
+  const teaserApproved = useAppState((s) => s.teaserApproved);
+  const outreachApproved = useAppState((s) => s.outreachApproved);
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
 
@@ -43,6 +61,21 @@ export function SellerLayout({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [user, navigate]);
+
+  const completion = [qb, !!provenance, !!financials, !!valuation, teaserApproved, outreachApproved];
+  const firstIncomplete = completion.findIndex((done) => !done);
+  const stepDefs: Array<Omit<FlowStep, "state">> = [
+    { index: "01", label: "Connect", to: "/seller/connect" },
+    { index: "02", label: "Verify", to: "/seller/financial-vault" },
+    { index: "03", label: "Normalize", to: "/seller/financial-review" },
+    { index: "04", label: "Value", to: "/seller/valuation" },
+    { index: "05", label: "Prepare", to: "/seller/teaser" },
+    { index: "06", label: "Test market", to: "/seller/buyer-interest" },
+  ];
+  const steps: FlowStep[] = stepDefs.map((s, i) => ({
+    ...s,
+    state: completion[i] ? "done" : i === firstIncomplete ? "current" : "todo",
+  }));
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -97,6 +130,11 @@ export function SellerLayout({ children }: { children: ReactNode }) {
           </div>
           <ThemeToggle />
         </header>
+        <div className="hidden border-b border-border bg-muted/30 px-4 py-2.5 md:block md:px-8">
+          <div className="mx-auto w-full max-w-5xl">
+            <FlowProgress steps={steps} />
+          </div>
+        </div>
         <main className="flex-1 px-4 py-8 md:px-8">
           <div className="mx-auto w-full max-w-5xl">{children}</div>
         </main>
@@ -104,4 +142,3 @@ export function SellerLayout({ children }: { children: ReactNode }) {
     </div>
   );
 }
-
