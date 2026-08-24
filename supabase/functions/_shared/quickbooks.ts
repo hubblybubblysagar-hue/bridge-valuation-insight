@@ -83,6 +83,12 @@ export const QB_ERROR = {
   qaDisabled: "qa_disabled",
   forbiddenRole: "forbidden_role",
   noConnection: "no_connection",
+  noBusiness: "no_business",
+  connectionNotActive: "connection_not_active",
+  syncRunCreateFailed: "sync_run_create_failed",
+  syncRunUpdateFailed: "sync_run_update_failed",
+  reportFetchFailed: "report_fetch_failed",
+  snapshotInsertFailed: "snapshot_insert_failed",
 } as const;
 
 export type QbErrorCode = typeof QB_ERROR[keyof typeof QB_ERROR];
@@ -299,6 +305,7 @@ export async function quickbooksGet(
   accessToken: string,
   realmId: string,
   path: string,
+  errorCode: QbErrorCode = QB_ERROR.companyInfoFetchFailed,
 ): Promise<unknown> {
   if (!path.startsWith("/")) path = "/" + path;
   const sep = path.includes("?") ? "&" : "?";
@@ -311,7 +318,7 @@ export async function quickbooksGet(
     },
   });
   if (!res.ok) {
-    throw new QbError(QB_ERROR.companyInfoFetchFailed, `status ${res.status}`);
+    throw new QbError(errorCode, `status ${res.status}`);
   }
   return res.json();
 }
@@ -348,6 +355,10 @@ export function logSafe(event: Record<string, unknown>): void {
     "action",
     "seller_id",
     "connection_id",
+    "sync_run_id",
+    "report_type",
+    "successful_count",
+    "failed_count",
     "realm_masked",
     "status",
     "intuit_status",
