@@ -299,6 +299,7 @@ export async function quickbooksGet(
   accessToken: string,
   realmId: string,
   path: string,
+  errorCode: QbErrorCode = QB_ERROR.companyInfoFetchFailed,
 ): Promise<unknown> {
   if (!path.startsWith("/")) path = "/" + path;
   const sep = path.includes("?") ? "&" : "?";
@@ -311,7 +312,7 @@ export async function quickbooksGet(
     },
   });
   if (!res.ok) {
-    throw new QbError(QB_ERROR.companyInfoFetchFailed, `status ${res.status}`);
+    throw new QbError(errorCode, `status ${res.status}`);
   }
   return res.json();
 }
@@ -469,4 +470,3 @@ export async function ensureFreshAccess(
     })
     .eq("id", conn.id);
   return { bundle: fresh, refreshed: true };
-}

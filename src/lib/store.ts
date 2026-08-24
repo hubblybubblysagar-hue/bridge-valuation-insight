@@ -59,11 +59,25 @@ export interface Valuation {
   buyerTypes: string[];
 }
 
+export type FinancialsSource = "quickbooks" | "sample" | "manual" | "upload";
+
+/** Traceability for QuickBooks-derived financials (which snapshot, which period). */
+export interface FinancialsProvenance {
+  snapshotId: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  basis: string | null;
+  fetchedAt: string | null;
+}
+
 export interface AppState {
   user: User | null;
   qbConnected: boolean;
   business: Business | null;
   financials: Financials | null;
+  /** Where the current financials came from — drives trust labels across the app. */
+  financialsSource: FinancialsSource | null;
+  financialsProvenance: FinancialsProvenance | null;
   risk: RiskAnswers | null;
   valuation: Valuation | null;
   teaserApproved: boolean;
@@ -88,6 +102,8 @@ const defaultState: AppState = {
   qbConnected: false,
   business: null,
   financials: null,
+  financialsSource: null,
+  financialsProvenance: null,
   risk: null,
   valuation: null,
   teaserApproved: false,
@@ -405,13 +421,19 @@ export function seedDemoStage(stage: DemoStage) {
       setState(base);
       return;
     case "seller-qb-connected":
-      setState({ ...base, qbConnected: true, financials: DEMO_FINANCIALS });
+      setState({
+        ...base,
+        qbConnected: true,
+        financials: DEMO_FINANCIALS,
+        financialsSource: "sample",
+      });
       return;
     case "seller-financial-review":
       setState({
         ...base,
         qbConnected: true,
         financials: DEMO_FINANCIALS,
+        financialsSource: "sample",
         business: DEMO_BUSINESS,
       });
       return;
@@ -421,6 +443,7 @@ export function seedDemoStage(stage: DemoStage) {
         ...base,
         qbConnected: true,
         financials: DEMO_FINANCIALS,
+        financialsSource: "sample",
         business: DEMO_BUSINESS,
         risk: DEMO_RISK,
         valuation: DEMO_VALUATION,
@@ -432,6 +455,7 @@ export function seedDemoStage(stage: DemoStage) {
         ...base,
         qbConnected: true,
         financials: DEMO_FINANCIALS,
+        financialsSource: "sample",
         business: DEMO_BUSINESS,
         risk: DEMO_RISK,
         valuation: DEMO_VALUATION,

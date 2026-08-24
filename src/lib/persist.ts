@@ -438,7 +438,26 @@ export async function hydrateSellerWorkspace(): Promise<void> {
           otherAddbacks: Number(financials.other_addbacks ?? 0),
         }
       : null,
-    qbConnected: financials?.source === "quickbooks_mock" || financials?.source === "quickbooks",
+    qbConnected: financials?.source === "quickbooks",
+    financialsSource: financials
+      ? financials.source === "quickbooks"
+        ? "quickbooks"
+        : financials.source === "quickbooks_mock"
+          ? "sample"
+          : ((financials.source as "manual" | "upload") ?? "manual")
+      : null,
+    financialsProvenance: (() => {
+      const raw = financials?.raw_payload as Record<string, unknown> | undefined;
+      const p = raw?.provenance as Record<string, unknown> | undefined;
+      if (!p || typeof p.snapshotId !== "string") return null;
+      return {
+        snapshotId: p.snapshotId,
+        periodStart: (p.periodStart as string | null) ?? null,
+        periodEnd: (p.periodEnd as string | null) ?? null,
+        basis: (p.basis as string | null) ?? null,
+        fetchedAt: (p.fetchedAt as string | null) ?? null,
+      };
+    })(),
     risk: risk
       ? {
           customerConcentration: risk.customer_concentration ?? "",
