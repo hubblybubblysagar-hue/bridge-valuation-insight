@@ -24,6 +24,7 @@ import { Route as BuyerIndexRouteImport } from './routes/buyer.index'
 import { Route as SellerValuationRouteImport } from './routes/seller.valuation'
 import { Route as SellerTeaserRouteImport } from './routes/seller.teaser'
 import { Route as SellerRiskRouteImport } from './routes/seller.risk'
+import { Route as SellerFinancialVaultRouteImport } from './routes/seller.financial-vault'
 import { Route as SellerFinancialReviewRouteImport } from './routes/seller.financial-review'
 import { Route as SellerConnectRouteImport } from './routes/seller.connect'
 import { Route as SellerBuyerInterestRouteImport } from './routes/seller.buyer-interest'
@@ -32,6 +33,7 @@ import { Route as SellerAccountRouteImport } from './routes/seller.account'
 import { Route as DebugStateRouteImport } from './routes/debug.state'
 import { Route as BuyerNdasRouteImport } from './routes/buyer.ndas'
 import { Route as BuyerAccountRouteImport } from './routes/buyer.account'
+import { Route as SellerFinancialVaultIndexRouteImport } from './routes/seller.financial-vault.index'
 import { Route as DemoSellerValuationRouteImport } from './routes/demo.seller.valuation'
 import { Route as DemoSellerTeaserRouteImport } from './routes/demo.seller.teaser'
 import { Route as DemoSellerStartRouteImport } from './routes/demo.seller.start'
@@ -116,6 +118,11 @@ const SellerRiskRoute = SellerRiskRouteImport.update({
   path: '/risk',
   getParentRoute: () => SellerRoute,
 } as any)
+const SellerFinancialVaultRoute = SellerFinancialVaultRouteImport.update({
+  id: '/financial-vault',
+  path: '/financial-vault',
+  getParentRoute: () => SellerRoute,
+} as any)
 const SellerFinancialReviewRoute = SellerFinancialReviewRouteImport.update({
   id: '/financial-review',
   path: '/financial-review',
@@ -156,6 +163,12 @@ const BuyerAccountRoute = BuyerAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => BuyerRoute,
 } as any)
+const SellerFinancialVaultIndexRoute =
+  SellerFinancialVaultIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => SellerFinancialVaultRoute,
+  } as any)
 const DemoSellerValuationRoute = DemoSellerValuationRouteImport.update({
   id: '/demo/seller/valuation',
   path: '/demo/seller/valuation',
@@ -218,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/seller/buyer-interest': typeof SellerBuyerInterestRoute
   '/seller/connect': typeof SellerConnectRoute
   '/seller/financial-review': typeof SellerFinancialReviewRoute
+  '/seller/financial-vault': typeof SellerFinancialVaultRouteWithChildren
   '/seller/risk': typeof SellerRiskRoute
   '/seller/teaser': typeof SellerTeaserRoute
   '/seller/valuation': typeof SellerValuationRoute
@@ -231,6 +245,7 @@ export interface FileRoutesByFullPath {
   '/demo/seller/start': typeof DemoSellerStartRoute
   '/demo/seller/teaser': typeof DemoSellerTeaserRoute
   '/demo/seller/valuation': typeof DemoSellerValuationRoute
+  '/seller/financial-vault/': typeof SellerFinancialVaultIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -262,6 +277,7 @@ export interface FileRoutesByTo {
   '/demo/seller/start': typeof DemoSellerStartRoute
   '/demo/seller/teaser': typeof DemoSellerTeaserRoute
   '/demo/seller/valuation': typeof DemoSellerValuationRoute
+  '/seller/financial-vault': typeof SellerFinancialVaultIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -283,6 +299,7 @@ export interface FileRoutesById {
   '/seller/buyer-interest': typeof SellerBuyerInterestRoute
   '/seller/connect': typeof SellerConnectRoute
   '/seller/financial-review': typeof SellerFinancialReviewRoute
+  '/seller/financial-vault': typeof SellerFinancialVaultRouteWithChildren
   '/seller/risk': typeof SellerRiskRoute
   '/seller/teaser': typeof SellerTeaserRoute
   '/seller/valuation': typeof SellerValuationRoute
@@ -296,6 +313,7 @@ export interface FileRoutesById {
   '/demo/seller/start': typeof DemoSellerStartRoute
   '/demo/seller/teaser': typeof DemoSellerTeaserRoute
   '/demo/seller/valuation': typeof DemoSellerValuationRoute
+  '/seller/financial-vault/': typeof SellerFinancialVaultIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -318,6 +336,7 @@ export interface FileRouteTypes {
     | '/seller/buyer-interest'
     | '/seller/connect'
     | '/seller/financial-review'
+    | '/seller/financial-vault'
     | '/seller/risk'
     | '/seller/teaser'
     | '/seller/valuation'
@@ -331,6 +350,7 @@ export interface FileRouteTypes {
     | '/demo/seller/start'
     | '/demo/seller/teaser'
     | '/demo/seller/valuation'
+    | '/seller/financial-vault/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -362,6 +382,7 @@ export interface FileRouteTypes {
     | '/demo/seller/start'
     | '/demo/seller/teaser'
     | '/demo/seller/valuation'
+    | '/seller/financial-vault'
   id:
     | '__root__'
     | '/'
@@ -382,6 +403,7 @@ export interface FileRouteTypes {
     | '/seller/buyer-interest'
     | '/seller/connect'
     | '/seller/financial-review'
+    | '/seller/financial-vault'
     | '/seller/risk'
     | '/seller/teaser'
     | '/seller/valuation'
@@ -395,6 +417,7 @@ export interface FileRouteTypes {
     | '/demo/seller/start'
     | '/demo/seller/teaser'
     | '/demo/seller/valuation'
+    | '/seller/financial-vault/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -526,6 +549,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SellerRiskRouteImport
       parentRoute: typeof SellerRoute
     }
+    '/seller/financial-vault': {
+      id: '/seller/financial-vault'
+      path: '/financial-vault'
+      fullPath: '/seller/financial-vault'
+      preLoaderRoute: typeof SellerFinancialVaultRouteImport
+      parentRoute: typeof SellerRoute
+    }
     '/seller/financial-review': {
       id: '/seller/financial-review'
       path: '/financial-review'
@@ -581,6 +611,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/buyer/account'
       preLoaderRoute: typeof BuyerAccountRouteImport
       parentRoute: typeof BuyerRoute
+    }
+    '/seller/financial-vault/': {
+      id: '/seller/financial-vault/'
+      path: '/'
+      fullPath: '/seller/financial-vault/'
+      preLoaderRoute: typeof SellerFinancialVaultIndexRouteImport
+      parentRoute: typeof SellerFinancialVaultRoute
     }
     '/demo/seller/valuation': {
       id: '/demo/seller/valuation'
@@ -655,12 +692,24 @@ const BuyerRouteChildren: BuyerRouteChildren = {
 
 const BuyerRouteWithChildren = BuyerRoute._addFileChildren(BuyerRouteChildren)
 
+interface SellerFinancialVaultRouteChildren {
+  SellerFinancialVaultIndexRoute: typeof SellerFinancialVaultIndexRoute
+}
+
+const SellerFinancialVaultRouteChildren: SellerFinancialVaultRouteChildren = {
+  SellerFinancialVaultIndexRoute: SellerFinancialVaultIndexRoute,
+}
+
+const SellerFinancialVaultRouteWithChildren =
+  SellerFinancialVaultRoute._addFileChildren(SellerFinancialVaultRouteChildren)
+
 interface SellerRouteChildren {
   SellerAccountRoute: typeof SellerAccountRoute
   SellerBusinessRoute: typeof SellerBusinessRoute
   SellerBuyerInterestRoute: typeof SellerBuyerInterestRoute
   SellerConnectRoute: typeof SellerConnectRoute
   SellerFinancialReviewRoute: typeof SellerFinancialReviewRoute
+  SellerFinancialVaultRoute: typeof SellerFinancialVaultRouteWithChildren
   SellerRiskRoute: typeof SellerRiskRoute
   SellerTeaserRoute: typeof SellerTeaserRoute
   SellerValuationRoute: typeof SellerValuationRoute
@@ -673,6 +722,7 @@ const SellerRouteChildren: SellerRouteChildren = {
   SellerBuyerInterestRoute: SellerBuyerInterestRoute,
   SellerConnectRoute: SellerConnectRoute,
   SellerFinancialReviewRoute: SellerFinancialReviewRoute,
+  SellerFinancialVaultRoute: SellerFinancialVaultRouteWithChildren,
   SellerRiskRoute: SellerRiskRoute,
   SellerTeaserRoute: SellerTeaserRoute,
   SellerValuationRoute: SellerValuationRoute,
