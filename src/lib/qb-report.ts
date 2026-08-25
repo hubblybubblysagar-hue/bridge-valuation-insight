@@ -1,12 +1,16 @@
-// QuickBooks report-style JSON parser — pure functions, no dependencies.
+// QuickBooks report parser v2 — pure functions, no dependencies.
 // Safe to import from browser code, server functions, and Deno tests.
 //
-// Turns the nested QBO report hierarchy (Header / Columns / Rows with
-// sections, sub-rows, and summaries) into a flat, renderable tree, and
-// extracts normalized financial figures (revenue, gross profit, opex,
-// net income) from Profit & Loss reports with explicit label matching.
+// QuickBooks nests report rows as capital-keyed structures:
+//   Row { type: "Section", Header: {ColData}, Rows: {Row: [...]}, Summary: {ColData}, group }
+//   Row { type: "Data", ColData: [...] }
+// Parser v1 looked for lowercase `header` and silently dropped every section —
+// this version traverses the real QBO shape recursively and emits one flat,
+// fully-attributed row per source node (header, data, or summary).
 
-// ============ Raw QBO shapes (loose) ============
+export const PARSER_VERSION = "2.0.0";
+
+// ============ Raw QBO shapes (loose; both casings tolerated) ============
 
 interface RawColDataEntry {
   value?: string;
@@ -16,10 +20,12 @@ interface RawColDataEntry {
 }
 
 interface RawRow {
+  Header?: { ColData?: RawColDataEntry[] };
   header?: { ColData?: RawColDataEntry[] };
   ColData?: RawColDataEntry[];
   Rows?: { Row?: RawRow[] };
   Summary?: { ColData?: RawColDataEntry[] };
+  summary?: { ColData?: RawColDataEntry[] };
   type?: string;
   group?: string;
 }
@@ -32,21 +38,46 @@ interface RawReportPayload {
     StartPeriod?: string;
     EndPeriod?: string;
     Time?: string;
+    Option?: Array<{ Name?: string; Value?: string }>;
   };
-  Columns?: { Column?: Array<{ ColTitle?: string; ColType?: string }> };
+  Columns?: {
+    Column?: Array<{
+      ColTitle?: string;
+      ColType?: string;
+      MetaData?: Array<{ Name?: string; Value?: string }>;
+    }>;
+  };
   Rows?: { Row?: RawRow[] };
 }
 
 // ============ Parsed model ============
 
-export type ReportRowKind = "section" | "data" | "summary";
+export type ReportRowType = "section" | "data" | "summary";
 
-export interface ReportRowNode {
-  label: string;
-  values: string[];
+export interface ParsedRowValue {
+  columnKey: string;
+  valueText: string;
+  valueNumeric: number | null;
+}
+
+export interface ParsedRow {
+  /** 0-based document order. */
+  sequence: number;
   depth: number;
-  kind: ReportRowKind;
-  children: ReportRowNode[];
+  rowType: ReportRowType;
+  /** "ASSETS > Current Assets > Bank Accounts" — ancestor section labels. */
+  sectionPath: string;
+  group: string | null;
+  /** QuickBooks account/entity id when the source row carries one. */
+  accountId: string | null;
+  label: string;
+  values: ParsedRowValue[];
+}
+
+export interface ParsedColumn {
+  title: string;
+  colKey: string;
+  colType: string;
 }
 
 export interface ParsedReport {
@@ -56,48 +87,57 @@ export interface ParsedReport {
   startPeriod: string | null;
   endPeriod: string | null;
   sourceTime: string | null;
-  /** Data column titles (excludes the leading label column). */
-  columns: string[];
-  rows: ReportRowNode[];
-  flat: ReportRowNode[];
+  noReportData: boolean;
+  columns: ParsedColumn[];
+  rows: ParsedRow[];
 }
 
-function colValues(colData: RawColDataEntry[] | undefined): { label: string; values: string[] } {
-  const entries = colData ?? [];
-  const label = (entries[0]?.value ?? "").toString();
-  const values = entries.slice(1).map((e) => (e.value ?? "").toString());
-  return { label, values };
-}
+// ============ Money parsing ============
 
-function parseRow(raw: RawRow, depth: number): ReportRowNode | null {
-  if (raw.header) {
-    const { label, values } = colValues(raw.header.ColData);
-    const children = (raw.Rows?.Row ?? [])
-      .map((r) => parseRow(r, depth + 1))
-      .filter((r): r is ReportRowNode => r !== null);
-    if (raw.Summary) {
-      const s = colValues(raw.Summary.ColData);
-      children.push({
-        label: s.label || `Total ${label}`,
-        values: s.values,
-        depth: depth + 1,
-        kind: "summary",
-        children: [],
-      });
-    }
-    return { label, values, depth, kind: "section", children };
+/** Parse a QBO display value: "1,234.00", "(1,234.00)" for negatives, "" for empty. */
+export function parseMoneyNullable(value: string | null | undefined): number | null {
+  if (value == null) return null;
+  let s = value.trim();
+  if (s === "" || s === "-" || s === "—") return null;
+  let negative = false;
+  if (s.startsWith("(") && s.endsWith(")")) {
+    negative = true;
+    s = s.slice(1, -1);
   }
-  if (raw.ColData) {
-    const { label, values } = colValues(raw.ColData);
-    const kind: ReportRowKind = raw.type === "Data" || !raw.type ? "data" : "data";
-    return { label, values, depth, kind, children: [] };
+  s = s.replace(/[$,\s]/g, "");
+  if (s.startsWith("-")) {
+    negative = true;
+    s = s.slice(1);
   }
-  return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return negative ? -n : n;
 }
 
-function flattenInto(node: ReportRowNode, out: ReportRowNode[]): void {
-  out.push(node);
-  for (const child of node.children) flattenInto(child, out);
+export function parseMoney(value: string | null | undefined): number {
+  return parseMoneyNullable(value) ?? 0;
+}
+
+// ============ Parsing ============
+
+function firstEntry(colData: RawColDataEntry[] | undefined): { label: string; id: string | null } {
+  const e = colData?.[0];
+  return { label: (e?.value ?? "").toString(), id: e?.id != null ? String(e.id) : null };
+}
+
+function valueEntries(
+  colData: RawColDataEntry[] | undefined,
+  columns: ParsedColumn[],
+): ParsedRowValue[] {
+  const entries = (colData ?? []).slice(1);
+  return entries.map((e, i) => {
+    const text = (e.value ?? "").toString();
+    return {
+      columnKey: columns[i]?.colKey ?? `col_${i}`,
+      valueText: text,
+      valueNumeric: parseMoneyNullable(text),
+    };
+  });
 }
 
 export function isReportPayload(payload: unknown): payload is RawReportPayload {
@@ -112,33 +152,138 @@ export function isReportPayload(payload: unknown): payload is RawReportPayload {
 export function parseReport(payload: unknown): ParsedReport | null {
   if (!isReportPayload(payload)) return null;
   const raw = payload as RawReportPayload;
+
   const columnsRaw = raw.Columns?.Column ?? [];
-  const titles = columnsRaw.map((c) => c.ColTitle ?? "");
-  // Drop the leading label column when it has no title.
-  const columns = titles.length > 0 && titles[0].trim() === "" ? titles.slice(1) : titles;
-  const rows = (raw.Rows?.Row ?? [])
-    .map((r) => parseRow(r, 0))
-    .filter((r): r is ReportRowNode => r !== null);
-  const flat: ReportRowNode[] = [];
-  for (const r of rows) flattenInto(r, flat);
+  const allColumns: ParsedColumn[] = columnsRaw.map((c, i) => ({
+    title: c.ColTitle ?? "",
+    colKey:
+      c.MetaData?.find((m) => m.Name === "ColKey")?.Value ??
+      (i === 0 ? "account" : `col_${i}`),
+    colType: c.ColType ?? "",
+  }));
+  // Drop the leading label column when it has no title; values align to the rest.
+  const columns =
+    allColumns.length > 0 && allColumns[0].title.trim() === "" ? allColumns.slice(1) : allColumns;
+
+  const header = raw.Header ?? {};
+  const noReportData =
+    header.Option?.some((o) => o.Name === "NoReportData" && o.Value === "true") ?? false;
+
+  const rows: ParsedRow[] = [];
+  let sequence = 0;
+
+  const walk = (rawRows: RawRow[] | undefined, depth: number, ancestors: string[]): void => {
+    for (const r of rawRows ?? []) {
+      const headerBlock = r.Header ?? r.header;
+      const summaryBlock = r.Summary ?? r.summary;
+      const path = ancestors.join(" > ");
+
+      if (headerBlock) {
+        const { label, id } = firstEntry(headerBlock.ColData);
+        const myPath = path ? `${path} > ${label}` : label;
+        rows.push({
+          sequence: sequence++,
+          depth,
+          rowType: "section",
+          sectionPath: path,
+          group: r.group ?? null,
+          accountId: id,
+          label,
+          values: valueEntries(headerBlock.ColData, columns),
+        });
+        walk(r.Rows?.Row, depth + 1, [...ancestors, label]);
+        if (summaryBlock) {
+          const s = firstEntry(summaryBlock.ColData);
+          rows.push({
+            sequence: sequence++,
+            depth: depth + 1,
+            rowType: "summary",
+            sectionPath: myPath,
+            group: r.group ?? null,
+            accountId: null,
+            label: s.label || `Total ${label}`,
+            values: valueEntries(summaryBlock.ColData, columns),
+          });
+        }
+        continue;
+      }
+
+      if (summaryBlock && !r.ColData) {
+        // Standalone summary section (Gross Profit, Net Operating Income, Net Income).
+        const s = firstEntry(summaryBlock.ColData);
+        rows.push({
+          sequence: sequence++,
+          depth,
+          rowType: "summary",
+          sectionPath: path,
+          group: r.group ?? null,
+          accountId: null,
+          label: s.label,
+          values: valueEntries(summaryBlock.ColData, columns),
+        });
+        continue;
+      }
+
+      if (r.ColData) {
+        const { label, id } = firstEntry(r.ColData);
+        rows.push({
+          sequence: sequence++,
+          depth,
+          rowType: "data",
+          sectionPath: path,
+          group: r.group ?? null,
+          accountId: id,
+          label,
+          values: valueEntries(r.ColData, columns),
+        });
+      }
+    }
+  };
+
+  walk(raw.Rows?.Row, 0, []);
+
   return {
-    reportName: raw.Header?.ReportName ?? "Report",
-    currency: raw.Header?.Currency ?? "USD",
-    reportBasis: raw.Header?.ReportBasis ?? null,
-    startPeriod: raw.Header?.StartPeriod ?? null,
-    endPeriod: raw.Header?.EndPeriod ?? null,
-    sourceTime: raw.Header?.Time ?? null,
+    reportName: header.ReportName ?? "Report",
+    currency: header.Currency ?? "USD",
+    reportBasis: header.ReportBasis ?? null,
+    startPeriod: header.StartPeriod ?? null,
+    endPeriod: header.EndPeriod ?? null,
+    sourceTime: header.Time ?? null,
+    noReportData,
     columns,
     rows,
-    flat,
   };
 }
 
-/** Number of value-bearing rows in a report payload (data + summary rows). */
+/**
+ * Count source nodes that carry meaningful ColData (section headers, data
+ * rows, and summaries). The parser must emit exactly one row per such node —
+ * used by the completeness regression test to prove nothing is dropped.
+ */
+export function countSourceNodes(payload: unknown): number {
+  if (!isReportPayload(payload)) return 0;
+  let count = 0;
+  const walk = (rawRows: RawRow[] | undefined): void => {
+    for (const r of rawRows ?? []) {
+      const headerBlock = r.Header ?? r.header;
+      const summaryBlock = r.Summary ?? r.summary;
+      if (headerBlock?.ColData && headerBlock.ColData.length > 0) count += 1;
+      else if (!headerBlock && r.ColData && r.ColData.length > 0) count += 1;
+      if (summaryBlock?.ColData && summaryBlock.ColData.length > 0) count += 1;
+      walk(r.Rows?.Row);
+    }
+  };
+  walk((payload as RawReportPayload).Rows?.Row);
+  return count;
+}
+
+/** Number of value-bearing rows (data + summary rows with any non-empty value). */
 export function reportRowCount(payload: unknown): number {
   const parsed = parseReport(payload);
   if (!parsed) return 0;
-  return parsed.flat.filter((r) => r.kind !== "section" || r.values.some((v) => v !== "")).length;
+  return parsed.rows.filter(
+    (r) => r.rowType !== "section" || r.values.some((v) => v.valueText !== ""),
+  ).length;
 }
 
 /** Provenance metadata extracted from a report payload header. */
@@ -171,30 +316,33 @@ export function reportHeaderMeta(payload: unknown): {
   };
 }
 
-// ============ Money parsing ============
+// ============ Row lookups (shared by normalization + validation) ============
 
-/** Parse a QBO display value: "$1,234.00", "(1,234.00)" for negatives, "" for empty. */
-export function parseMoneyNullable(value: string | null | undefined): number | null {
-  if (value == null) return null;
-  let s = value.trim();
-  if (s === "" || s === "-" || s === "—") return null;
-  let negative = false;
-  if (s.startsWith("(") && s.endsWith(")")) {
-    negative = true;
-    s = s.slice(1, -1);
-  }
-  s = s.replace(/[$,\s]/g, "");
-  if (s.startsWith("-")) {
-    negative = true;
-    s = s.slice(1);
-  }
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return negative ? -n : n;
+function normLabel(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-export function parseMoney(value: string | null | undefined): number {
-  return parseMoneyNullable(value) ?? 0;
+/** Total value of a row: the last non-empty numeric column. */
+export function rowTotal(row: ParsedRow): number | null {
+  for (let i = row.values.length - 1; i >= 0; i -= 1) {
+    if (row.values[i].valueNumeric !== null) return row.values[i].valueNumeric;
+  }
+  return null;
+}
+
+/** Find a summary row by exact normalized label (e.g. "net income"). */
+export function findSummaryRow(parsed: ParsedReport, label: string): ParsedRow | null {
+  const target = normLabel(label);
+  return parsed.rows.find((r) => r.rowType === "summary" && normLabel(r.label) === target) ?? null;
+}
+
+/** Find a summary row whose label starts with a prefix (e.g. "total income"). */
+export function findSummaryRowByPrefix(parsed: ParsedReport, prefix: string): ParsedRow | null {
+  const target = normLabel(prefix);
+  return (
+    parsed.rows.find((r) => r.rowType === "summary" && normLabel(r.label).startsWith(target)) ??
+    null
+  );
 }
 
 // ============ Profit & Loss normalization ============
@@ -213,42 +361,24 @@ export interface NormalizedPnL {
   };
 }
 
-function normLabel(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-/** Total value of a row: the last non-empty value column (TOTAL column for single-period reports). */
-function rowTotal(row: ReportRowNode): number | null {
-  for (let i = row.values.length - 1; i >= 0; i -= 1) {
-    const n = parseMoneyNullable(row.values[i]);
-    if (n !== null) return n;
-  }
-  return null;
-}
-
 /**
- * Derive the four core figures from a parsed P&L using label matching.
- * Returns null fields when a figure cannot be traced to a labelled row —
- * callers must surface "not available" rather than guessing.
+ * Derive the four core figures from a parsed P&L using explicit QBO summary
+ * rows. Returns null fields when a figure cannot be traced to a labelled
+ * row — callers must surface "not available" rather than guessing.
  */
 export function normalizePnL(parsed: ParsedReport): NormalizedPnL {
-  const flat = parsed.flat;
   const matched: NormalizedPnL["matched"] = {};
 
-  // Revenue: the summary row of the top Income/Revenue section.
-  const revenueRow = flat.find(
-    (r) => r.kind === "summary" && /^total (income|revenue)/.test(normLabel(r.label)),
-  );
-  // Gross profit: the "Gross Profit" row QBO inserts between income and expenses.
-  const grossRow = flat.find((r) => normLabel(r.label).includes("gross profit"));
-  // Operating expenses: the summary row of the Expenses section.
-  const expenseRow = flat.find(
-    (r) => r.kind === "summary" && /^total (expenses|operating expenses|cost of goods)/.test(normLabel(r.label)),
-  );
-  // Net income: exact "Net Income" preferred; fall back to "Net Operating Income".
-  const netRow =
-    flat.find((r) => normLabel(r.label) === "net income") ??
-    flat.find((r) => normLabel(r.label) === "net operating income");
+  const revenueRow =
+    findSummaryRowByPrefix(parsed, "total income") ?? findSummaryRowByPrefix(parsed, "total revenue");
+  const grossRow =
+    findSummaryRow(parsed, "gross profit") ??
+    parsed.rows.find((r) => normLabel(r.label).includes("gross profit")) ??
+    null;
+  const expenseRow =
+    findSummaryRow(parsed, "total expenses") ??
+    findSummaryRowByPrefix(parsed, "total operating expenses");
+  const netRow = findSummaryRow(parsed, "net income") ?? findSummaryRow(parsed, "net operating income");
 
   if (revenueRow) matched.revenue = revenueRow.label;
   if (grossRow) matched.grossProfit = grossRow.label;
@@ -273,10 +403,17 @@ function csvCell(value: string): string {
 
 export function reportToCsv(parsed: ParsedReport): string {
   const lines: string[] = [];
-  lines.push([csvCell(parsed.reportName), ...parsed.columns.map(csvCell)].join(","));
-  for (const row of parsed.flat) {
+  lines.push(
+    [csvCell(parsed.reportName), ...parsed.columns.map((c) => csvCell(c.title))].join(","),
+  );
+  for (const row of parsed.rows) {
     const indent = "  ".repeat(row.depth);
-    lines.push([csvCell(indent + row.label), ...row.values.map(csvCell)].join(","));
+    lines.push(
+      [
+        csvCell(indent + row.label),
+        ...row.values.map((v) => csvCell(v.valueText)),
+      ].join(","),
+    );
   }
   return lines.join("\n");
 }
