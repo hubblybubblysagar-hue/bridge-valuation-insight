@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { SellerLayout } from "@/components/SellerLayout";
 import { PageHeading, SectionCard, SourceChip } from "@/components/workspace";
 import { fmtDateOnly } from "@/lib/date-only";
+import { reparseQuickBooksSnapshots } from "@/lib/qb-sync.functions";
 import { Button } from "@/components/ui/button";
 import {
   loadVaultData,
@@ -102,6 +103,7 @@ function FinancialVaultPage() {
   const [data, setData] = useState<VaultData | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [reparsing, setReparsing] = useState(false);
 
   const reload = useCallback(async () => {
     const fresh = await loadVaultData();
@@ -133,6 +135,23 @@ function FinancialVaultPage() {
       toast.error((e as Error).message || "Sync failed");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const runReparse = async () => {
+    setReparsing(true);
+    try {
+      const r = await reparseQuickBooksSnapshots();
+      toast.success(
+        r.reparsed > 0
+          ? `Re-parsed ${r.reparsed} stored reports with the current parser (source data untouched).`
+          : "All stored reports already use the current parser.",
+      );
+      await reload();
+    } catch (e) {
+      toast.error((e as Error).message || "Re-parse failed");
+    } finally {
+      setReparsing(false);
     }
   };
 
@@ -178,22 +197,38 @@ function FinancialVaultPage() {
             title="QuickBooks source"
             description="Read-only access. Reports are snapshotted immutably — every sync creates new versions, never edits history."
             action={
-              <Button
-                onClick={runSync}
-                disabled={syncing}
-                data-testid="vault-sync-button"
-                className="bg-gold text-gold-foreground hover:bg-gold/90"
-              >
-                {syncing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Syncing reports…
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" /> Sync from QuickBooks
-                  </>
-                )}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={runReparse}
+                  disabled={reparsing || syncing}
+                  data-testid="vault-reparse-button"
+                >
+                  {reparsing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Re-parsing…
+                    </>
+                  ) : (
+                    "Re-parse stored reports"
+                  )}
+                </Button>
+                <Button
+                  onClick={runSync}
+                  disabled={syncing || reparsing}
+                  data-testid="vault-sync-button"
+                  className="bg-gold text-gold-foreground hover:bg-gold/90"
+                >
+                  {syncing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Syncing reports…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" /> Sync from QuickBooks
+                    </>
+                  )}
+                </Button>
+              </div>
             }
             testId="vault-source"
           >
