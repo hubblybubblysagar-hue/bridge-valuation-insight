@@ -17,10 +17,9 @@ import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
   buildReportRequests,
-  defaultReportPlanInput,
-  hasMeaningfulHistoryBefore,
-  type ReportRequest,
+  companyInfoRequest,
   type SnapshotLifecycle,
+  type SyncReportRequest,
   type SyncResultItem,
   type SyncRunResult,
 } from "./qb-report-plan";
@@ -168,19 +167,20 @@ async function refreshTokens(bundle: StoredTokenBundle): Promise<StoredTokenBund
 interface QbApiResult {
   payload: unknown;
   httpStatus: number;
-  /** Intuit error code parsed from a non-OK fault body, when present. */
-  intuitCode: string | null;
 }
 
+/**
+ * GET a QuickBooks path. `requestPath` is the planner-built path including
+ * any query string (e.g. `/reports/ProfitAndLoss?start_date=...`).
+ */
 async function quickbooksGet(
   bundle: StoredTokenBundle,
-  path: string,
-  params: Record<string, string>,
+  requestPath: string,
   accessToken: string,
 ): Promise<QbApiResult> {
-  const url = new URL(`${qboBaseUrl(bundle.environment)}/v3/company/${bundle.realmId}/${path}`);
+  const base = `${qboBaseUrl(bundle.environment)}/v3/company/${bundle.realmId}`;
+  const url = new URL(`${base}${requestPath.startsWith("/") ? requestPath : `/${requestPath}`}`);
   url.searchParams.set("minorversion", process.env["QUICKBOOKS_MINOR_VERSION"] ?? "75");
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
@@ -199,35 +199,18 @@ async function quickbooksGet(
       } catch {
         /* non-JSON fault body */
       }
-      throw new SyncError("quickbooks_request_failed", `QuickBooks API returned ${res.status}`, res.status, intuitCode);
+      throw new SyncError(
+        "quickbooks_request_failed",
+        `QuickBooks API returned ${res.status}`,
+        res.status,
+        intuitCode,
+      );
     }
-    return { payload: await res.json(), httpStatus: res.status, intuitCode: null };
+    return { payload: await res.json(), httpStatus: res.status };
   } finally {
     clearTimeout(timer);
   }
 }
-
-// ---------- Report metadata ----------
-
-const REPORT_LABELS: Record<string, string> = {
-  company_info: "Company Information",
-  profit_and_loss: "Profit & Loss",
-  balance_sheet: "Balance Sheet",
-  cash_flow: "Cash Flow Statement",
-  trial_balance: "Trial Balance",
-  aged_receivables: "Aged Receivables",
-  aged_payables: "Aged Payables",
-  account_list: "Chart of Accounts",
-};
-
-const QB_REPORT_PATHS: Record<string, string> = {
-  profit_and_loss: "reports/ProfitAndLoss",
-  balance_sheet: "reports/BalanceSheet",
-  cash_flow: "reports/CashFlow",
-  trial_balance: "reports/TrialBalance",
-  aged_receivables: "reports/AgedReceivables",
-  aged_payables: "reports/AgedPayables",
-};
 
 // ---------- Helpers ----------
 
@@ -252,7 +235,7 @@ function deriveLifecycle(
   if (!parsed) return "parse_failed";
   const dataRows = parsed.rows.filter((r) => r.rowType === "data").length;
   if (parsed.noReportData || dataRows === 0) return "empty_source";
-  if (!validation) return "parsed"; // report types without a validator (account list, aging)
+  if (!validation || validation.checks.length === 0) return "parsed"; // no validator for this report type
   if (validation.overall === "fail") return "validation_failed";
   if (validation.overall === "pass") return "ready";
   return "validated"; // checks ran but were not comparable
@@ -305,7 +288,8 @@ export async function fetchCompanyInfoForConnection(
     bundle.realmId = refreshed.realmId;
   }
 
-  const { payload } = await quickbooksGet(bundle, "companyinfo/" + bundle.realmId, {}, token);
+  const req = companyInfoRequest(bundle.realmId);
+  const { payload } = await quickbooksGet(bundle, req.path, token);
   const info = (payload as { CompanyInfo?: Record<string, string> }).CompanyInfo ?? {};
   return {
     companyName: info.CompanyName ?? null,
@@ -339,24 +323,20 @@ export async function syncConnectionFinancials(
 
   // 2. CompanyInfo — fiscal-year input. CompanyStartDate is informational
   //    metadata only; it is NOT a hard cutoff for available history.
-  let companyInfo: Record<string, unknown> = {};
-  let companyStartDate: string | null = null;
-  let fiscalYearStartMonth = 1;
   const manifest: SyncResultItem[] = [];
+  let companyName: string | null = connection.company_name;
+  let fiscalYearStartMonth = 1;
+  const ciReq = companyInfoRequest(bundle.realmId);
   try {
-    const ci = await quickbooksGet(
-      bundle,
-      "companyinfo/" + bundle.realmId,
-      {},
-      bundle.accessToken,
-    );
-    companyInfo = ((ci.payload as { CompanyInfo?: Record<string, unknown> }).CompanyInfo ?? {}) as Record<string, unknown>;
-    companyStartDate = (companyInfo["CompanyStartDate"] as string) ?? null;
+    const ci = await quickbooksGet(bundle, ciReq.path, bundle.accessToken);
+    const companyInfo = ((ci.payload as { CompanyInfo?: Record<string, unknown> }).CompanyInfo ??
+      {}) as Record<string, unknown>;
+    companyName = (companyInfo["CompanyName"] as string) ?? companyName;
     fiscalYearStartMonth = Number(companyInfo["FiscalYearStartMonth"] ?? 1) || 1;
     manifest.push({
-      reportType: "company_info",
-      label: REPORT_LABELS.company_info,
-      path: `companyinfo/${bundle.realmId}`,
+      reportType: ciReq.reportType,
+      label: ciReq.label,
+      path: ciReq.path,
       periodStart: null,
       periodEnd: null,
       status: "retrieved",
@@ -365,9 +345,9 @@ export async function syncConnectionFinancials(
   } catch (err) {
     const se = err instanceof SyncError ? err : null;
     manifest.push({
-      reportType: "company_info",
-      label: REPORT_LABELS.company_info,
-      path: `companyinfo/${bundle.realmId}`,
+      reportType: ciReq.reportType,
+      label: ciReq.label,
+      path: ciReq.path,
       periodStart: null,
       periodEnd: null,
       status: "api_failed",
@@ -378,7 +358,8 @@ export async function syncConnectionFinancials(
   }
 
   // 3. History-aware planning: skip periods whose prior snapshot was
-  //    persistently empty (QuickBooks has no data there).
+  //    persistently empty (QuickBooks has no data there). Meaningful-history
+  //    discovery comes from real snapshots, not from CompanyStartDate.
   const prior = await supabase
     .from("quickbooks_report_snapshots")
     .select("report_type, period_start, period_end, status")
@@ -390,16 +371,16 @@ export async function syncConnectionFinancials(
     period_end: string | null;
   }>;
 
-  const requests = buildReportRequests(defaultReportPlanInput(new Date(), fiscalYearStartMonth))
-    .filter((r) => {
-      if (r.type === "cash_flow") return true; // no proven-empty memory for derived filters
-      return !emptyPeriods.some(
-        (e) =>
-          e.report_type === r.type &&
-          e.period_start === (r.params.start_date ?? null) &&
-          e.period_end === (r.params.end_date ?? null),
-      );
-    });
+  const requests: SyncReportRequest[] = buildReportRequests(new Date(), fiscalYearStartMonth)
+    .filter(
+      (r) =>
+        !emptyPeriods.some(
+          (e) =>
+            e.report_type === r.reportType &&
+            e.period_start === r.periodStart &&
+            e.period_end === r.periodEnd,
+        ),
+    );
 
   // 4. Create the sync run row.
   const admin = await adminClient();
@@ -411,13 +392,19 @@ export async function syncConnectionFinancials(
       business_id: connection.business_id,
       connection_id: connection.id,
       status: "running",
-      requested_report_types: requests.map((r) => r.type),
+      requested_report_types: requests.map((r) => r.reportType),
     })
     .select("id")
     .single();
   const syncRunId = (runIns.data as { id: string } | null)?.id ?? null;
+  if (!syncRunId) {
+    throw new SyncError(
+      "sync_run_insert_failed",
+      runIns.error?.message ?? "Could not create the sync run record",
+    );
+  }
 
-  // 5. Execute each request.
+  // 5. Execute each request: Acquire → Parse → Validate → Preserve/Persist.
   let success = 0;
   let failed = 0;
   const errorCodes: string[] = [];
@@ -425,11 +412,11 @@ export async function syncConnectionFinancials(
 
   for (const req of requests) {
     const entry: SyncResultItem = {
-      reportType: req.type,
-      label: REPORT_LABELS[req.type] ?? req.type,
-      path: QB_REPORT_PATHS[req.type] ?? req.type,
-      periodStart: req.params.start_date ?? null,
-      periodEnd: req.params.end_date ?? null,
+      reportType: req.reportType,
+      label: req.label,
+      path: req.path,
+      periodStart: req.periodStart,
+      periodEnd: req.periodEnd,
       status: "requested",
     };
     manifest.push(entry);
@@ -437,7 +424,7 @@ export async function syncConnectionFinancials(
     // Acquire
     let apiResult: QbApiResult;
     try {
-      apiResult = await quickbooksGet(bundle, entry.path!, req.params, bundle.accessToken);
+      apiResult = await quickbooksGet(bundle, req.path, bundle.accessToken);
       entry.httpStatus = apiResult.httpStatus;
     } catch (err) {
       const se = err instanceof SyncError ? err : null;
@@ -450,12 +437,10 @@ export async function syncConnectionFinancials(
       continue;
     }
 
-    // Parse
+    // Parse + Validate
     const parsed = parseReport(apiResult.payload);
     entry.rowCount = reportRowCount(apiResult.payload);
-
-    // Validate
-    const validation = parsed ? validateReport(req.type, parsed) : null;
+    const validation = parsed ? validateReport(req.reportType, parsed) : null;
     entry.status = deriveLifecycle(parsed, validation);
 
     // Preserve (byte-immutable) + Persist
@@ -468,10 +453,10 @@ export async function syncConnectionFinancials(
         connection_id: connection.id,
         business_id: connection.business_id,
         sync_run_id: syncRunId,
-        report_type: req.type,
-        period_start: req.params.start_date ?? null,
-        period_end: req.params.end_date ?? null,
-        accounting_method: req.params.accounting_method ?? null,
+        report_type: req.reportType,
+        period_start: req.periodStart,
+        period_end: req.periodEnd,
+        accounting_method: req.accountingMethod,
         raw_payload: apiResult.payload ?? {},
         normalized_payload: {
           parser_version: PARSER_VERSION,
@@ -481,8 +466,8 @@ export async function syncConnectionFinancials(
           rows: parsed?.rows ?? [],
           validation,
         },
-        report_basis: meta.report_basis ?? req.params.accounting_method ?? null,
-        source_generated_at: meta.source_time ?? null,
+        report_basis: meta.report_basis ?? req.accountingMethod,
+        source_generated_at: meta.source_time,
         row_count: entry.rowCount,
         checksum,
         status: entry.status,
@@ -501,12 +486,9 @@ export async function syncConnectionFinancials(
         continue;
       }
       entry.snapshotId = (ins.data as { id: string } | null)?.id ?? null;
-
-      if (entry.status === "empty_source" || entry.status === "parse_failed") {
-        // Persisted for audit, but not counted as a usable financial success.
-        success += 1;
-      } else {
-        success += 1;
+      success += 1;
+      // History discovery: track the earliest period that actually yielded data.
+      if (entry.status !== "empty_source" && entry.status !== "parse_failed") {
         const end = entry.periodEnd;
         if (end && (!discoveredHistoryEarliest || end < discoveredHistoryEarliest)) {
           discoveredHistoryEarliest = end;
@@ -523,19 +505,17 @@ export async function syncConnectionFinancials(
 
   // 6. Finalize the run with its full per-request manifest.
   const runStatus = failed === 0 ? "completed" : success > 0 ? "partial" : "failed";
-  if (syncRunId) {
-    await writer
-      .from("quickbooks_sync_runs")
-      .update({
-        status: runStatus,
-        successful_count: success,
-        failed_count: failed,
-        error_codes: errorCodes,
-        results: manifest,
-        completed_at: new Date().toISOString(),
-      } as never)
-      .eq("id", syncRunId);
-  }
+  await writer
+    .from("quickbooks_sync_runs")
+    .update({
+      status: runStatus,
+      successful_count: success,
+      failed_count: failed,
+      error_codes: errorCodes,
+      results: manifest,
+      completed_at: new Date().toISOString(),
+    } as never)
+    .eq("id", syncRunId);
 
   // 7. Update connection bookkeeping.
   await writer
@@ -543,7 +523,7 @@ export async function syncConnectionFinancials(
     .update({
       last_synced_at: new Date().toISOString(),
       last_error: failed > 0 ? errorCodes.join(",") : null,
-      company_name: (companyInfo["CompanyName"] as string) ?? connection.company_name,
+      company_name: companyName,
     })
     .eq("id", connection.id);
 
@@ -560,7 +540,7 @@ export async function syncConnectionFinancials(
 }
 
 /**
- * Re-run the parser over existing snapshots in place. Updates
+ * Re-run the current parser over existing snapshots in place. Updates
  * normalized_payload, row_count, and lifecycle status ONLY — raw_payload,
  * checksum, and fetched_at are immutable and never touched.
  */
