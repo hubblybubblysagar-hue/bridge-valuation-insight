@@ -112,10 +112,12 @@ export function priorFiscalYear(today: Date, fyStartMonth: number, yearsBack: nu
   const base = completedFiscalYear(today, fyStartMonth);
   const s = parseDateUtc(base.start);
   const start = new Date(Date.UTC(s.getUTCFullYear() - yearsBack, s.getUTCMonth(), 1));
-  const end = addDays(parseDateUtc(base.start), -1);
-  end.setUTCFullYear(end.getUTCFullYear() - yearsBack);
-  // end lands on the last day of the month before the start month; normalize.
-  const endNorm = lastDayOfMonthUtc(end.getUTCFullYear(), end.getUTCMonth() + 1);
+  // Shift the completed year's END back by whole years (shifting the start
+  // would land on the day before the window, one year too far).
+  const e = parseDateUtc(base.end);
+  const shifted = new Date(Date.UTC(e.getUTCFullYear() - yearsBack, e.getUTCMonth(), e.getUTCDate()));
+  // End is always a month-end; normalize for leap-year edge cases.
+  const endNorm = lastDayOfMonthUtc(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1);
   return {
     start: isoDate(start),
     end: isoDate(endNorm),
