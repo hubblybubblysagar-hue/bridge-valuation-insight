@@ -148,6 +148,20 @@ function reportPath(name: string, params: Record<string, string | undefined>): s
   return `/reports/${name}?${q.toString()}`;
 }
 
+// CompanyInfo is not a /reports/* endpoint — it needs the realm ID, so it is
+// built separately and synced first: its FiscalYearStartMonth determines the
+// fiscal-year windows for every other report in the run.
+export function companyInfoRequest(realmId: string): SyncReportRequest {
+  return {
+    reportType: "company_info",
+    label: "Company information",
+    path: `/companyinfo/${encodeURIComponent(realmId)}`,
+    periodStart: null,
+    periodEnd: null,
+    accountingMethod: null,
+  };
+}
+
 // The standard acquisition-diligence report set. Every request is a
 // read-only GET against the QuickBooks reports/query endpoints.
 export function buildReportRequests(today: Date, fyStartMonth: number): SyncReportRequest[] {
