@@ -201,7 +201,12 @@ export function ConnectPage() {
   const useSampleData = async () => {
     setBusy("sample");
     try {
-      setState({ qbConnected: false, financials: SAMPLE_FINANCIALS });
+      setState({
+        qbConnected: false,
+        financials: SAMPLE_FINANCIALS,
+        financialsSource: "sample",
+        financialsProvenance: null,
+      });
       await persistFinancials(SAMPLE_FINANCIALS, "quickbooks_mock", { sample: true });
       toast.success("Sample data loaded");
       navigate({ to: "/seller/business" });
