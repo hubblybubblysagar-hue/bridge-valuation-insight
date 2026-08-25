@@ -132,8 +132,8 @@ output, failure screenshots, and traces remain **private Actions artifacts**.
 
 | Failing job | Most likely cause |
 | --- | --- |
-| `edge-function-tests` | A change to `_shared/quickbooks.ts` altered an error code, the scope, or introduced a non-GET Data API call |
-| `database-tests` | A migration widened access to a `service_qb_*` bridge or a `quickbooks_*` table |
+| `edge-function-tests` | A change to `_shared/quickbooks.ts` altered an error code, the scope, or introduced a non-GET Data API call. Parser v2 regressions surface here too — `qb_report_parser_v2_test.ts` replays the real sandbox Balance Sheet / P&L fixtures from `tests/fixtures/qb-reports.ts` and enforces parser completeness (every meaningful source node parsed) plus financial identities (Assets = L+E, Gross Profit / Net Income reconciliation) |
+| `database-tests` | A migration widened access to a `service_qb_*` bridge or a `quickbooks_*` table, or removed the `quickbooks_sync_runs.results` manifest column (see `quickbooks_sync_lifecycle_test.sql`) |
 | `browser-tests` (public) | A demo route started calling a real Edge Function, or a `data-testid` was renamed |
 | `browser-tests` (seller) | The sample-data path leaked into the real-connection UI, or Connect wrote financials |
 | `quickbooks-smoke` | The sandbox refresh token expired (Intuit rotates every 100 days) — reconnect the QA seller, or the QA seller sign-in failed |
