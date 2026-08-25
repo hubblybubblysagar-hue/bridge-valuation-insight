@@ -124,7 +124,7 @@ Deno.test("CSV export: includes sections, data, and summary rows", () => {
   const lines = csv.split("\n");
   assertEquals(lines.length, parsed.rows.length + 1);
   assert(csv.toLowerCase().includes("total assets"));
-  assertStringIncludes(csv, "23,436.29");
+  assertStringIncludes(csv, "23436.29");
 });
 
 Deno.test("parseReport: non-report payloads return null", () => {

@@ -380,10 +380,9 @@ export function normalizePnL(parsed: ParsedReport): NormalizedPnL {
     findSummaryRowByPrefix(parsed, "total operating expenses");
   const netRow =
     findSummaryRow(parsed, "net income") ??
+    parsed.rows.find((r) => normLabel(r.label) === "net income") ??
     findSummaryRow(parsed, "net operating income") ??
-    parsed.rows.find((r) =>
-      ["net income", "net operating income"].includes(normLabel(r.label)),
-    ) ??
+    parsed.rows.find((r) => normLabel(r.label) === "net operating income") ??
     null;
 
   if (revenueRow) matched.revenue = revenueRow.label;
