@@ -161,8 +161,8 @@ export function ReviewPage() {
           className="mb-6 flex items-start gap-3 rounded-xl border border-gold/40 bg-gold/10 p-4 text-sm text-foreground"
         >
           <p>
-            <span className="font-semibold">Sample data — demonstration only.</span> These figures
-            did not come from QuickBooks. Connect QuickBooks to replace them with your real
+            <span className="font-semibold">Sample data — demonstration only.</span> No QuickBooks
+            sync is behind these numbers. Connect QuickBooks to replace them with your real
             financials.
           </p>
         </div>
@@ -172,7 +172,7 @@ export function ReviewPage() {
           data-testid="source-banner-manual"
           className="mb-6 rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground"
         >
-          These figures were provided by you (not synced from QuickBooks).
+          These figures were provided by you (not synced from an accounting system).
         </div>
       )}
 
@@ -269,8 +269,8 @@ function BridgeRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <dt className="flex min-w-0 items-center gap-2 text-muted-foreground">
-        <span className="truncate">
+      <dt className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+        <span>
           {add ? "+ " : ""}
           {label}
         </span>
