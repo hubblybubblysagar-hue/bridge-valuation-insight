@@ -13,6 +13,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import {
   buildReportRequests,
+  companyInfoRequest,
   fiscalYearStartMonthFromCompanyInfo,
   SYNC_REPORT_TYPES,
   type SyncReportType,

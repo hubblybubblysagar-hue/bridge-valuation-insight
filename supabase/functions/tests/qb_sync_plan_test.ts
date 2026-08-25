@@ -9,6 +9,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   buildReportRequests,
+  companyInfoRequest,
   completedFiscalYear,
   fiscalYearStartMonthFromCompanyInfo,
   isoDate,
@@ -65,10 +66,13 @@ Deno.test("fiscalYearStartMonthFromCompanyInfo: parses stored snapshot, defaults
 
 // ============ Report request planning ============
 
-Deno.test("buildReportRequests: 15 read-only requests covering the standard set", () => {
+Deno.test("buildReportRequests: read-only requests covering the standard set", () => {
   const reqs = buildReportRequests(new Date(Date.UTC(2026, 5, 15)), 1);
-  assertEquals(reqs.length, 15);
+  assertEquals(reqs.length, 14);
+  // Every financial report type except company_info is covered by the
+  // planner; company_info is built separately (needs the realm ID).
   for (const t of SYNC_REPORT_TYPES) {
+    if (t === "company_info") continue;
     assert(
       reqs.some((r) => r.reportType === t),
       `expected a request for ${t}`,
@@ -82,9 +86,16 @@ Deno.test("buildReportRequests: 15 read-only requests covering the standard set"
     );
     assert(!/create|update|delete|post/i.test(r.path), `write-looking path ${r.path}`);
   }
-  // P&L set: 3 completed FY + YTD + prior YTD + monthly.
+  // company_info request: read-only companyinfo endpoint with escaped realm.
+  const ci = companyInfoRequest("4620816365421018930");
+  assertEquals(ci.reportType, "company_info");
+  assertStringIncludes(ci.path, "/companyinfo/4620816365421018930");
+  assert(!/create|update|delete|post/i.test(ci.path));
+  // P&L set: 3 completed FY + YTD + prior YTD + monthly = 6.
   const pls = reqs.filter((r) => r.reportType === "profit_and_loss");
   assertEquals(pls.length, 6);
+  // Cash flow: completed FY + YTD.
+  assertEquals(reqs.filter((r) => r.reportType === "cash_flow").length, 2);
   assert(pls.some((r) => r.path.includes("columns=Month")), "expected a monthly P&L");
   // All P&L requests declare the accounting basis explicitly.
   for (const r of pls) {
