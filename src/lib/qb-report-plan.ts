@@ -38,12 +38,40 @@ export interface SyncReportRequest {
   accountingMethod: string | null;
 }
 
+// Lifecycle states for a single report request/snapshot.
+// REQUESTED → RETRIEVED → PARSED → VALIDATED → RECONCILED → READY, with
+// terminal failure/empty alternatives. A 200 OK with zero parsed rows is
+// never "ready".
+export type SnapshotLifecycle =
+  | "requested"
+  | "retrieved"
+  | "parsed"
+  | "validated"
+  | "reconciled"
+  | "ready"
+  | "api_failed"
+  | "persistence_failed"
+  | "empty_source"
+  | "parse_failed"
+  | "validation_failed"
+  | "reconciliation_warning"
+  | "synced"; // legacy value from pre-v2 syncs
+
 export interface SyncResultItem {
   reportType: string;
+  label?: string;
+  /** Request path (no host, no tokens) — persisted for auditability. */
+  path?: string;
   periodStart: string | null;
   periodEnd: string | null;
-  status: "synced" | "failed";
+  status: SnapshotLifecycle;
+  httpStatus?: number | null;
+  intuitErrorCode?: string | null;
   errorCode?: string;
+  /** Sanitized persistence error detail (PostgREST code + message class). */
+  errorDetail?: string | null;
+  snapshotId?: string | null;
+  rowCount?: number | null;
   checksum?: string;
 }
 
@@ -55,6 +83,8 @@ export interface SyncRunResult {
   successfulCount: number;
   failedCount: number;
   results: SyncResultItem[];
+  /** Earliest report period end that contained meaningful data in this run. */
+  discoveredHistoryEarliest?: string | null;
   lastSyncedAt: string | null;
   correlationId: string;
 }
