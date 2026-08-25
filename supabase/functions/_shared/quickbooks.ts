@@ -83,6 +83,12 @@ export const QB_ERROR = {
   qaDisabled: "qa_disabled",
   forbiddenRole: "forbidden_role",
   noConnection: "no_connection",
+  noBusiness: "no_business",
+  connectionNotActive: "connection_not_active",
+  configNotConfigured: "config_not_configured",
+  syncRunCreateFailed: "sync_run_create_failed",
+  reportFetchFailed: "report_fetch_failed",
+  snapshotInsertFailed: "snapshot_insert_failed",
 } as const;
 
 export type QbErrorCode = typeof QB_ERROR[keyof typeof QB_ERROR];
