@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { SellerLayout } from "@/components/SellerLayout";
 import { PageHeading, SectionCard, SourceChip } from "@/components/workspace";
+import { fmtDateOnly } from "@/lib/date-only";
 import { Button } from "@/components/ui/button";
 import {
   loadVaultData,
