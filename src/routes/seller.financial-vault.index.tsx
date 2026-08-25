@@ -61,10 +61,8 @@ const SECTIONS: {
 ];
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  // Report periods are date-only values — render without timezone math.
+  return fmtDateOnly(iso);
 }
 
 function fmtDateTime(iso: string | null | undefined): string {
