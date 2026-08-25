@@ -16,8 +16,10 @@ export function SellerHome() {
   return (
     <SellerLayout>
       <div className="mb-8">
-        <div className="text-xs font-semibold uppercase tracking-widest text-gold">Welcome</div>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">
+          01 · Connect
+        </div>
+        <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground md:text-4xl">
           Let's see what your business could be worth.
         </h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
@@ -48,6 +50,11 @@ export function SellerHome() {
                 <ArrowRight className="ml-1 h-4 w-4" />
               </Link>
             </Button>
+            {qb && (
+              <Button asChild variant="outline" size="lg">
+                <Link to="/seller/financial-vault">Open Financial Vault</Link>
+              </Button>
+            )}
             {valuation && (
               <Button asChild variant="outline" size="lg">
                 <Link to="/seller/valuation">View my valuation</Link>

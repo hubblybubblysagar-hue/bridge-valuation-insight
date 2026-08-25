@@ -81,7 +81,10 @@ function QAReviewPage() {
           <SectionCard
             title="Debug"
             icon={ShieldAlert}
-            links={[{ to: "/debug/state", label: "Debug state" }]}
+            links={[
+              { to: "/debug/state", label: "Debug state" },
+              { to: "/seller/financial-vault", label: "Financial Vault (requires real seller sign-in)" },
+            ]}
             accent="navy"
           />
         </div>

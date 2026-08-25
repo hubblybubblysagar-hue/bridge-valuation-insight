@@ -13,6 +13,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import {
   buildReportRequests,
+  companyInfoRequest,
   fiscalYearStartMonthFromCompanyInfo,
   SYNC_REPORT_TYPES,
   type SyncReportType,
@@ -292,17 +293,84 @@ export async function runFinancialSync(
       .order("fetched_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const fyStartMonth = fiscalYearStartMonthFromCompanyInfo(ciSnap?.raw_payload ?? null);
-
     const bundle = await ensureFreshAccess(admin, cfg, conn);
-    const requests = buildReportRequests(new Date(), fyStartMonth).filter((r) =>
-      requested.includes(r.reportType),
-    );
 
     let successful = 0;
     let failed = 0;
     const errorCodes = new Set<string>();
     const results: SyncResultItem[] = [];
+
+    // CompanyInfo is synced first when requested: its FiscalYearStartMonth
+    // determines the fiscal-year windows used by every other report.
+    let fySource: unknown = ciSnap?.raw_payload ?? null;
+    if (requested.includes("company_info")) {
+      const ciReq = companyInfoRequest(conn.realm_id);
+      try {
+        const payload = await quickbooksGet(cfg, bundle.access_token, conn.realm_id, ciReq.path);
+        fySource = payload;
+        const checksum = await sha256Hex(JSON.stringify(payload));
+        const { error: insErr } = await admin.from("quickbooks_report_snapshots").insert({
+          connection_id: conn.id,
+          business_id: conn.business_id,
+          sync_run_id: syncRunId,
+          report_type: "company_info",
+          period_start: null,
+          period_end: null,
+          accounting_method: null,
+          report_basis: null,
+          raw_payload: payload as unknown as Json,
+          normalized_payload: {} as unknown as Json,
+          source_generated_at: null,
+          row_count: 1,
+          checksum,
+          status: "synced",
+          fetched_at: new Date().toISOString(),
+        });
+        if (insErr) {
+          failed += 1;
+          errorCodes.add(SYNC_ERROR.snapshotInsertFailed);
+          results.push({
+            reportType: "company_info",
+            periodStart: null,
+            periodEnd: null,
+            status: "failed",
+            errorCode: SYNC_ERROR.snapshotInsertFailed,
+          });
+        } else {
+          successful += 1;
+          results.push({
+            reportType: "company_info",
+            periodStart: null,
+            periodEnd: null,
+            status: "synced",
+            checksum,
+          });
+        }
+      } catch (e) {
+        failed += 1;
+        const code = toErrorCode(e, SYNC_ERROR.reportFetchFailed);
+        errorCodes.add(code);
+        results.push({
+          reportType: "company_info",
+          periodStart: null,
+          periodEnd: null,
+          status: "failed",
+          errorCode: code,
+        });
+        logSafe({
+          correlation_id: cid,
+          action: "sync_report",
+          sync_run_id: syncRunId,
+          report_type: "company_info",
+          error_code: code,
+        });
+      }
+    }
+
+    const fyStartMonth = fiscalYearStartMonthFromCompanyInfo(fySource);
+    const requests = buildReportRequests(new Date(), fyStartMonth).filter((r) =>
+      requested.includes(r.reportType),
+    );
 
     for (const r of requests) {
       try {

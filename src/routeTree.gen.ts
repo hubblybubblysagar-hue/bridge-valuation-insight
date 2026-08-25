@@ -42,6 +42,7 @@ import { Route as DemoSellerFinancialReviewRouteImport } from './routes/demo.sel
 import { Route as DemoSellerBuyerInterestRouteImport } from './routes/demo.seller.buyer-interest'
 import { Route as DemoBuyerNdaRequestRouteImport } from './routes/demo.buyer.nda-request'
 import { Route as DemoBuyerFeedRouteImport } from './routes/demo.buyer.feed'
+import { Route as SellerFinancialVaultReportSnapshotIdRouteImport } from './routes/seller.financial-vault.report.$snapshotId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -211,6 +212,12 @@ const DemoBuyerFeedRoute = DemoBuyerFeedRouteImport.update({
   path: '/demo/buyer/feed',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SellerFinancialVaultReportSnapshotIdRoute =
+  SellerFinancialVaultReportSnapshotIdRouteImport.update({
+    id: '/report/$snapshotId',
+    path: '/report/$snapshotId',
+    getParentRoute: () => SellerFinancialVaultRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -246,6 +253,7 @@ export interface FileRoutesByFullPath {
   '/demo/seller/teaser': typeof DemoSellerTeaserRoute
   '/demo/seller/valuation': typeof DemoSellerValuationRoute
   '/seller/financial-vault/': typeof SellerFinancialVaultIndexRoute
+  '/seller/financial-vault/report/$snapshotId': typeof SellerFinancialVaultReportSnapshotIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -278,6 +286,7 @@ export interface FileRoutesByTo {
   '/demo/seller/teaser': typeof DemoSellerTeaserRoute
   '/demo/seller/valuation': typeof DemoSellerValuationRoute
   '/seller/financial-vault': typeof SellerFinancialVaultIndexRoute
+  '/seller/financial-vault/report/$snapshotId': typeof SellerFinancialVaultReportSnapshotIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -314,6 +323,7 @@ export interface FileRoutesById {
   '/demo/seller/teaser': typeof DemoSellerTeaserRoute
   '/demo/seller/valuation': typeof DemoSellerValuationRoute
   '/seller/financial-vault/': typeof SellerFinancialVaultIndexRoute
+  '/seller/financial-vault/report/$snapshotId': typeof SellerFinancialVaultReportSnapshotIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -351,6 +361,7 @@ export interface FileRouteTypes {
     | '/demo/seller/teaser'
     | '/demo/seller/valuation'
     | '/seller/financial-vault/'
+    | '/seller/financial-vault/report/$snapshotId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -383,6 +394,7 @@ export interface FileRouteTypes {
     | '/demo/seller/teaser'
     | '/demo/seller/valuation'
     | '/seller/financial-vault'
+    | '/seller/financial-vault/report/$snapshotId'
   id:
     | '__root__'
     | '/'
@@ -418,6 +430,7 @@ export interface FileRouteTypes {
     | '/demo/seller/teaser'
     | '/demo/seller/valuation'
     | '/seller/financial-vault/'
+    | '/seller/financial-vault/report/$snapshotId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -675,6 +688,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoBuyerFeedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/seller/financial-vault/report/$snapshotId': {
+      id: '/seller/financial-vault/report/$snapshotId'
+      path: '/report/$snapshotId'
+      fullPath: '/seller/financial-vault/report/$snapshotId'
+      preLoaderRoute: typeof SellerFinancialVaultReportSnapshotIdRouteImport
+      parentRoute: typeof SellerFinancialVaultRoute
+    }
   }
 }
 
@@ -694,10 +714,13 @@ const BuyerRouteWithChildren = BuyerRoute._addFileChildren(BuyerRouteChildren)
 
 interface SellerFinancialVaultRouteChildren {
   SellerFinancialVaultIndexRoute: typeof SellerFinancialVaultIndexRoute
+  SellerFinancialVaultReportSnapshotIdRoute: typeof SellerFinancialVaultReportSnapshotIdRoute
 }
 
 const SellerFinancialVaultRouteChildren: SellerFinancialVaultRouteChildren = {
   SellerFinancialVaultIndexRoute: SellerFinancialVaultIndexRoute,
+  SellerFinancialVaultReportSnapshotIdRoute:
+    SellerFinancialVaultReportSnapshotIdRoute,
 }
 
 const SellerFinancialVaultRouteWithChildren =

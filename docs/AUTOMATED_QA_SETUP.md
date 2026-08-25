@@ -5,9 +5,9 @@ seller's data, and none of them write to Intuit.
 
 | Layer | Location | Runner | What it proves |
 | --- | --- | --- | --- |
-| Database | `supabase/tests/database/*.sql` | pgTAP via `supabase test db` | Bridge-function permissions, one-time OAuth state consumption, RLS exposure |
-| Edge Functions | `supabase/functions/tests/*.ts` | `deno test` | OAuth URL construction, token expiry math, refresh rotation, GET-only rule, CORS allow-list, safe error codes |
-| Browser | `tests/e2e/**` | Playwright | Real vs. sample data separation, demo-route isolation, buyer/seller access boundaries |
+| Database | `supabase/tests/database/*.sql` | pgTAP via `supabase test db` | Bridge-function permissions, one-time OAuth state consumption, RLS exposure, sync-run/snapshot immutability and owner scoping |
+| Edge Functions | `supabase/functions/tests/*.ts` | `deno test` | OAuth URL construction, token expiry math, refresh rotation, GET-only rule, CORS allow-list, safe error codes, sync request planner fiscal math, report parser and P&L normalization |
+| Browser | `tests/e2e/**` | Playwright | Real vs. sample data separation, demo-route isolation, buyer/seller access boundaries, Financial Vault rendering and provenance surfaces |
 | Scheduled smoke | `.github/workflows/quickbooks-smoke.yml` | GitHub Actions (daily) | The sandbox connection is still alive and refreshable |
 
 ## Workflows

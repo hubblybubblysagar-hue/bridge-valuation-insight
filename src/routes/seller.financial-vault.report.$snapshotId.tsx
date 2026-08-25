@@ -1,0 +1,285 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Download, Loader2, ShieldCheck } from "lucide-react";
+import { SellerLayout } from "@/components/SellerLayout";
+import { SourceChip } from "@/components/workspace";
+import { Button } from "@/components/ui/button";
+import { loadSnapshotById, type SnapshotDetail } from "@/lib/quickbooks";
+import { parseReport, reportToCsv, type ParsedReport, type ReportRowNode } from "@/lib/qb-report";
+import { SYNC_REPORT_TYPE_LABELS, type SyncReportType } from "@/lib/qb-report-plan";
+
+export const Route = createFileRoute("/seller/financial-vault/report/$snapshotId")({
+  head: () => ({ meta: [{ title: "Report detail — ExitBridge" }] }),
+  component: ReportDetailPage,
+});
+
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function ReportDetailPage() {
+  const { snapshotId } = Route.useParams();
+  const [snap, setSnap] = useState<SnapshotDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadSnapshotById(snapshotId).then((s) => {
+      if (cancelled) return;
+      setSnap(s);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshotId]);
+
+  const parsed = useMemo(() => (snap ? parseReport(snap.rawPayload) : null), [snap]);
+
+  const downloadCsv = () => {
+    if (!parsed || !snap) return;
+    const blob = new Blob([reportToCsv(parsed)], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${snap.reportType}-${snap.periodEnd ?? "current"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <SellerLayout>
+      <Link
+        to="/seller/financial-vault"
+        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Financial Vault
+      </Link>
+
+      {loading ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading report…
+        </div>
+      ) : !snap ? (
+        <div
+          data-testid="report-not-found"
+          className="rounded-2xl border border-border bg-card p-10 text-center"
+        >
+          <h1 className="font-display text-2xl text-foreground">Report not found</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This snapshot doesn&apos;t exist or isn&apos;t part of your workspace.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">
+              02 · Verify
+            </div>
+            <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground md:text-4xl">
+              {SYNC_REPORT_TYPE_LABELS[snap.reportType as SyncReportType] ?? snap.reportType}
+            </h1>
+            <p className="mt-1 text-muted-foreground">
+              {snap.periodStart && snap.periodEnd
+                ? `${fmtDate(snap.periodStart)} – ${fmtDate(snap.periodEnd)}`
+                : snap.periodEnd
+                  ? `As of ${fmtDate(snap.periodEnd)}`
+                  : "Current"}
+            </p>
+          </div>
+
+          {/* Provenance header */}
+          <div
+            data-testid="report-provenance"
+            className="rounded-2xl border border-border bg-card p-6 shadow-elegant"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <SourceChip source="quickbooks" />
+              {snap.reportBasis && (
+                <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {snap.reportBasis} basis
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ShieldCheck className="h-3.5 w-3.5 text-success" /> Immutable snapshot
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <Meta label="Synced">{fmtDateTime(snap.fetchedAt)}</Meta>
+              <Meta label="Generated by QuickBooks">{fmtDateTime(snap.sourceGeneratedAt)}</Meta>
+              <Meta label="Rows">{snap.rowCount != null && snap.rowCount > 0 ? snap.rowCount : "—"}</Meta>
+              <Meta label="Checksum (SHA-256)">
+                <span className="font-mono text-xs">
+                  {snap.checksum ? `${snap.checksum.slice(0, 16)}…` : "—"}
+                </span>
+              </Meta>
+            </dl>
+            {parsed && (
+              <div className="mt-4">
+                <Button variant="outline" size="sm" onClick={downloadCsv} data-testid="report-csv">
+                  <Download className="mr-2 h-4 w-4" /> Download CSV
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Report body */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-elegant md:p-8">
+            {parsed ? (
+              <ReportTable parsed={parsed} />
+            ) : (
+              <KeyValuePayload payload={snap.rawPayload} />
+            )}
+          </div>
+
+          {/* Internal QA: raw source */}
+          <details
+            data-testid="inspect-source"
+            className="rounded-2xl border border-border bg-card p-6"
+          >
+            <summary className="cursor-pointer text-sm font-semibold text-foreground">
+              Inspect source response
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                Raw JSON exactly as retrieved from QuickBooks
+              </span>
+            </summary>
+            <pre className="mt-4 max-h-96 overflow-auto rounded-xl bg-muted/50 p-4 text-xs text-muted-foreground">
+              {JSON.stringify(snap.rawPayload, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+    </SellerLayout>
+  );
+}
+
+function Meta({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-background px-3 py-2">
+      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-sm font-medium text-foreground">{children}</dd>
+    </div>
+  );
+}
+
+function ReportTable({ parsed }: { parsed: ParsedReport }) {
+  return (
+    <div className="overflow-x-auto" data-testid="report-table">
+      <table className="w-full min-w-[32rem] text-sm">
+        <thead>
+          <tr className="border-b border-border text-left">
+            <th className="py-2 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {parsed.reportName}
+            </th>
+            {parsed.columns.map((c, i) => (
+              <th
+                key={i}
+                className="py-2 pr-4 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground last:pr-0"
+              >
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {parsed.flat.map((row, i) => (
+            <ReportRow key={i} row={row} columnCount={parsed.columns.length} />
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-4 text-xs text-muted-foreground">
+        {parsed.currency}
+        {parsed.reportBasis ? ` · ${parsed.reportBasis} basis` : ""}
+      </p>
+    </div>
+  );
+}
+
+function ReportRow({ row, columnCount }: { row: ReportRowNode; columnCount: number }) {
+  const cells = [...row.values];
+  while (cells.length < columnCount) cells.push("");
+  const paddingLeft = `${row.depth * 1.25}rem`;
+  const isSummary = row.kind === "summary";
+  const isSection = row.kind === "section";
+  return (
+    <tr
+      className={
+        isSummary
+          ? "border-t border-border font-semibold text-foreground"
+          : isSection
+            ? "text-foreground"
+            : "text-muted-foreground"
+      }
+      data-row-kind={row.kind}
+    >
+      <td
+        className={`py-1.5 pr-4 ${isSection ? "pt-4 text-xs font-semibold uppercase tracking-wide" : ""}`}
+        style={{ paddingLeft }}
+      >
+        {row.label}
+      </td>
+      {cells.map((v, i) => (
+        <td key={i} className="py-1.5 pr-4 text-right tabular-nums last:pr-0">
+          {v}
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+/** Non-tabular payloads (CompanyInfo, account query results) render as key/value grids. */
+function KeyValuePayload({ payload }: { payload: unknown }) {
+  const entries = useMemo(() => {
+    if (!payload || typeof payload !== "object") return [];
+    const obj = payload as Record<string, unknown>;
+    const inner =
+      (obj.CompanyInfo as Record<string, unknown> | undefined) ??
+      (obj.QueryResponse as Record<string, unknown> | undefined) ??
+      obj;
+    const out: Array<{ key: string; value: string }> = [];
+    for (const [key, value] of Object.entries(inner)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        if (Array.isArray(value)) {
+          out.push({ key, value: `${value.length} entries` });
+        } else {
+          const rec = value as Record<string, unknown>;
+          out.push({ key, value: (rec.name as string) ?? (rec.value as string) ?? JSON.stringify(value) });
+        }
+      } else {
+        out.push({ key, value: String(value) });
+      }
+    }
+    return out;
+  }, [payload]);
+
+  if (entries.length === 0) {
+    return <p className="text-sm text-muted-foreground">No displayable fields in this snapshot.</p>;
+  }
+  return (
+    <dl className="grid gap-3 sm:grid-cols-2" data-testid="report-keyvalues">
+      {entries.map((e) => (
+        <div key={e.key} className="rounded-lg border border-border bg-background px-3 py-2">
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">{e.key}</dt>
+          <dd className="mt-1 break-words text-sm font-medium text-foreground">{e.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
