@@ -48,11 +48,14 @@ export const verifyQuickBooksConnection = createServerFn({ method: "POST" })
   });
 
 export const syncQuickBooksFinancials = createServerFn({ method: "POST" })
-  .inputValidator((data: { connectionId: string }) => data)
+  .inputValidator((data: { connectionId?: string }) => data ?? {})
   .middleware([requireSupabaseAuth])
   .handler(async ({ context, data }): Promise<SyncRunResult> => {
     const rows = await listConnectionsForSeller(context.supabase as never, context.userId);
-    const connection = rows.find((r) => r.id === data.connectionId);
+    // Default to the seller's connected QuickBooks connection when not specified.
+    const connection = data.connectionId
+      ? rows.find((r) => r.id === data.connectionId)
+      : rows.find((r) => r.status === "connected") ?? rows[0];
     if (!connection) throw new Error("Connection not found");
     try {
       return await syncConnectionFinancials(context.supabase as never, connection);
