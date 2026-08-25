@@ -316,9 +316,25 @@ function FinancialVaultPage() {
                             </span>
                           )}
                         </div>
-                        <div className="mt-3 text-[11px] text-muted-foreground">
-                          Synced {fmtDateTime(s.fetchedAt)}
-                          {s.rowCount != null && s.rowCount > 0 ? ` · ${s.rowCount} rows` : ""}
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                          <span
+                            data-testid="vault-snapshot-status"
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              s.status === "ready" || s.status === "validated" || s.status === "reconciled"
+                                ? "bg-success/10 text-success"
+                                : s.status === "empty_source"
+                                  ? "bg-muted text-muted-foreground"
+                                  : s.status.endsWith("_failed") || s.status === "validation_failed"
+                                    ? "bg-destructive/10 text-destructive"
+                                    : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {snapshotStatusLabel(s.status)}
+                          </span>
+                          <span>
+                            {fmtDateTime(s.fetchedAt)}
+                            {s.rowCount != null && s.rowCount > 0 ? ` · ${s.rowCount} rows` : ""}
+                          </span>
                         </div>
                       </Link>
                     ))}
