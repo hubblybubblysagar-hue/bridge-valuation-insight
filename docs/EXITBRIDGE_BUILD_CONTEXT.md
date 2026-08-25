@@ -343,7 +343,7 @@ Supabase calls. Must stay this way.
 1. Backend QA + RLS hardening (this pass) ✅
 2. End-to-end Supabase persistence testing via `/qa-backend`
 3. Real QuickBooks OAuth (Intuit)
-4. QuickBooks P&L / Balance Sheet ingestion + normalization
+4. QuickBooks P&L / Balance Sheet ingestion + normalization ✅ (Phase D)
 5. Stripe $499 Snapshot checkout
 6. Email notifications (signup, NDA request, approval)
 7. Server-side teaser PDF export
