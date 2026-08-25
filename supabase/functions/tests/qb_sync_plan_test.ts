@@ -170,25 +170,27 @@ const PL_PAYLOAD = {
   },
 };
 
-Deno.test("parseReport: builds a flat hierarchy with depths and summary rows", () => {
+Deno.test("parseReport: builds a fully-attributed flat row model (v2)", () => {
   const parsed = parseReport(PL_PAYLOAD);
   assert(parsed !== null);
   assertEquals(parsed.currency, "USD");
   assertEquals(parsed.reportBasis, "Accrual");
-  assertEquals(parsed.columns, ["Total"]);
+  assertEquals(parsed.columns.map((c) => c.title), ["Total"]);
 
   const income = parsed.rows[0];
-  assertEquals(income.kind, "section");
+  assertEquals(income.rowType, "section");
   assertEquals(income.depth, 0);
-  // Two data children + synthesized summary row.
-  assertEquals(income.children.length, 3);
-  assertEquals(income.children[0].depth, 1);
-  assertEquals(income.children[2].kind, "summary");
-  assertEquals(income.children[2].label, "Total Income");
 
-  const flat = parsed.flat;
-  assert(flat.some((r) => r.label === "Gross Profit"));
-  assertEquals(reportRowCount(PL_PAYLOAD), flat.filter((r) => r.kind !== "section").length);
+  const totalIncome = parsed.rows.find((r) => r.label === "Total Income")!;
+  assertEquals(totalIncome.rowType, "summary");
+  assertEquals(totalIncome.depth, 1);
+  assertEquals(totalIncome.sectionPath, "Income");
+
+  assert(parsed.rows.some((r) => r.label === "Gross Profit"));
+  assertEquals(
+    reportRowCount(PL_PAYLOAD),
+    parsed.rows.filter((r) => r.rowType !== "section").length,
+  );
 });
 
 Deno.test("normalizePnL: traces the four core figures to labelled rows", () => {

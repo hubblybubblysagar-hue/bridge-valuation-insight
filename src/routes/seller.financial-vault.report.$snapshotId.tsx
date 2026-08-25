@@ -5,7 +5,9 @@ import { SellerLayout } from "@/components/SellerLayout";
 import { SourceChip } from "@/components/workspace";
 import { Button } from "@/components/ui/button";
 import { loadSnapshotById, type SnapshotDetail } from "@/lib/quickbooks";
-import { parseReport, reportToCsv, type ParsedReport, type ReportRowNode } from "@/lib/qb-report";
+import { parseReport, reportToCsv, type ParsedReport, type ParsedRow } from "@/lib/qb-report";
+import { validateReport, type ValidationResult } from "@/lib/qb-validate";
+import { fmtDateOnly, fmtTimestamp } from "@/lib/date-only";
 import { SYNC_REPORT_TYPE_LABELS, type SyncReportType } from "@/lib/qb-report-plan";
 
 export const Route = createFileRoute("/seller/financial-vault/report/$snapshotId")({
@@ -14,23 +16,12 @@ export const Route = createFileRoute("/seller/financial-vault/report/$snapshotId
 });
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  // Report periods are date-only — render without timezone math.
+  return fmtDateOnly(iso);
 }
 
 function fmtDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return fmtTimestamp(iso);
 }
 
 function ReportDetailPage() {
@@ -51,6 +42,10 @@ function ReportDetailPage() {
   }, [snapshotId]);
 
   const parsed = useMemo(() => (snap ? parseReport(snap.rawPayload) : null), [snap]);
+  const validation: ValidationResult | null = useMemo(
+    () => (snap && parsed ? validateReport(snap.reportType, parsed) : null),
+    [snap, parsed],
+  );
 
   const downloadCsv = () => {
     if (!parsed || !snap) return;
@@ -130,6 +125,36 @@ function ReportDetailPage() {
                 </span>
               </Meta>
             </dl>
+            {validation && validation.checks.length > 0 && (
+              <div className="mt-4 space-y-1.5" data-testid="report-validation">
+                {validation.checks.map((c) => (
+                  <div key={c.id} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span
+                      className={`inline-flex h-1.5 w-1.5 rounded-full ${
+                        c.status === "pass"
+                          ? "bg-success"
+                          : c.status === "fail"
+                            ? "bg-destructive"
+                            : "bg-muted-foreground"
+                      }`}
+                    />
+                    <span className="font-medium text-foreground">{c.label}</span>
+                    <span className="text-muted-foreground">
+                      {c.status === "not_comparable"
+                        ? (c.detail ?? "Not comparable")
+                        : c.status === "pass"
+                          ? "reconciles"
+                          : `differs by ${c.difference}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {parsed?.noReportData && (
+              <p className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground" data-testid="report-empty-source">
+                QuickBooks reported no data for this period (empty source) — nothing to display.
+              </p>
+            )}
             {parsed && (
               <div className="mt-4">
                 <Button variant="outline" size="sm" onClick={downloadCsv} data-testid="report-csv">
@@ -192,13 +217,13 @@ function ReportTable({ parsed }: { parsed: ParsedReport }) {
                 key={i}
                 className="py-2 pr-4 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground last:pr-0"
               >
-                {c}
+                {c.title}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {parsed.flat.map((row, i) => (
+          {parsed.rows.map((row, i) => (
             <ReportRow key={i} row={row} columnCount={parsed.columns.length} />
           ))}
         </tbody>
@@ -211,12 +236,12 @@ function ReportTable({ parsed }: { parsed: ParsedReport }) {
   );
 }
 
-function ReportRow({ row, columnCount }: { row: ReportRowNode; columnCount: number }) {
-  const cells = [...row.values];
+function ReportRow({ row, columnCount }: { row: ParsedRow; columnCount: number }) {
+  const cells = row.values.map((v) => v.valueText);
   while (cells.length < columnCount) cells.push("");
   const paddingLeft = `${row.depth * 1.25}rem`;
-  const isSummary = row.kind === "summary";
-  const isSection = row.kind === "section";
+  const isSummary = row.rowType === "summary";
+  const isSection = row.rowType === "section";
   return (
     <tr
       className={
@@ -226,7 +251,7 @@ function ReportRow({ row, columnCount }: { row: ReportRowNode; columnCount: numb
             ? "text-foreground"
             : "text-muted-foreground"
       }
-      data-row-kind={row.kind}
+      data-row-kind={row.rowType}
     >
       <td
         className={`py-1.5 pr-4 ${isSection ? "pt-4 text-xs font-semibold uppercase tracking-wide" : ""}`}

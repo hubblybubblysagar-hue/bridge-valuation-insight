@@ -557,6 +557,7 @@ export type Database = {
           failed_count: number
           id: string
           requested_report_types: string[]
+          results: Json
           seller_id: string
           started_at: string
           status: string
@@ -572,6 +573,7 @@ export type Database = {
           failed_count?: number
           id?: string
           requested_report_types?: string[]
+          results?: Json
           seller_id: string
           started_at?: string
           status?: string
@@ -587,6 +589,7 @@ export type Database = {
           failed_count?: number
           id?: string
           requested_report_types?: string[]
+          results?: Json
           seller_id?: string
           started_at?: string
           status?: string

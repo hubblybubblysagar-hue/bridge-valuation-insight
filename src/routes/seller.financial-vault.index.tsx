@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+// Snapshot lifecycle labels shown on vault cards.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -11,6 +12,8 @@ import {
 import { toast } from "sonner";
 import { SellerLayout } from "@/components/SellerLayout";
 import { PageHeading, SectionCard, SourceChip } from "@/components/workspace";
+import { fmtDateOnly } from "@/lib/date-only";
+import { reparseQuickBooksSnapshots } from "@/lib/qb-sync.functions";
 import { Button } from "@/components/ui/button";
 import {
   loadVaultData,
@@ -60,11 +63,28 @@ const SECTIONS: {
   },
 ];
 
+const SNAPSHOT_STATUS_LABELS: Record<string, string> = {
+  ready: "Validated",
+  validated: "Validated",
+  reconciled: "Reconciled",
+  parsed: "Parsed",
+  retrieved: "Retrieved",
+  empty_source: "Empty source",
+  parse_failed: "Parse failed",
+  validation_failed: "Check failed",
+  reconciliation_warning: "Reconciliation warning",
+  api_failed: "API failed",
+  persistence_failed: "Save failed",
+  synced: "Synced",
+};
+
+function snapshotStatusLabel(status: string): string {
+  return SNAPSHOT_STATUS_LABELS[status] ?? status;
+}
+
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  // Report periods are date-only values — render without timezone math.
+  return fmtDateOnly(iso);
 }
 
 function fmtDateTime(iso: string | null | undefined): string {
@@ -103,6 +123,7 @@ function FinancialVaultPage() {
   const [data, setData] = useState<VaultData | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [reparsing, setReparsing] = useState(false);
 
   const reload = useCallback(async () => {
     const fresh = await loadVaultData();
@@ -134,6 +155,23 @@ function FinancialVaultPage() {
       toast.error((e as Error).message || "Sync failed");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const runReparse = async () => {
+    setReparsing(true);
+    try {
+      const r = await reparseQuickBooksSnapshots();
+      toast.success(
+        r.reparsed > 0
+          ? `Re-parsed ${r.reparsed} stored reports with the current parser (source data untouched).`
+          : "All stored reports already use the current parser.",
+      );
+      await reload();
+    } catch (e) {
+      toast.error((e as Error).message || "Re-parse failed");
+    } finally {
+      setReparsing(false);
     }
   };
 
@@ -179,22 +217,38 @@ function FinancialVaultPage() {
             title="QuickBooks source"
             description="Read-only access. Reports are snapshotted immutably — every sync creates new versions, never edits history."
             action={
-              <Button
-                onClick={runSync}
-                disabled={syncing}
-                data-testid="vault-sync-button"
-                className="bg-gold text-gold-foreground hover:bg-gold/90"
-              >
-                {syncing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Syncing reports…
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" /> Sync from QuickBooks
-                  </>
-                )}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={runReparse}
+                  disabled={reparsing || syncing}
+                  data-testid="vault-reparse-button"
+                >
+                  {reparsing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Re-parsing…
+                    </>
+                  ) : (
+                    "Re-parse stored reports"
+                  )}
+                </Button>
+                <Button
+                  onClick={runSync}
+                  disabled={syncing || reparsing}
+                  data-testid="vault-sync-button"
+                  className="bg-gold text-gold-foreground hover:bg-gold/90"
+                >
+                  {syncing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Syncing reports…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" /> Sync from QuickBooks
+                    </>
+                  )}
+                </Button>
+              </div>
             }
             testId="vault-source"
           >
@@ -262,9 +316,25 @@ function FinancialVaultPage() {
                             </span>
                           )}
                         </div>
-                        <div className="mt-3 text-[11px] text-muted-foreground">
-                          Synced {fmtDateTime(s.fetchedAt)}
-                          {s.rowCount != null && s.rowCount > 0 ? ` · ${s.rowCount} rows` : ""}
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                          <span
+                            data-testid="vault-snapshot-status"
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              s.status === "ready" || s.status === "validated" || s.status === "reconciled"
+                                ? "bg-success/10 text-success"
+                                : s.status === "empty_source"
+                                  ? "bg-muted text-muted-foreground"
+                                  : s.status.endsWith("_failed") || s.status === "validation_failed"
+                                    ? "bg-destructive/10 text-destructive"
+                                    : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {snapshotStatusLabel(s.status)}
+                          </span>
+                          <span>
+                            {fmtDateTime(s.fetchedAt)}
+                            {s.rowCount != null && s.rowCount > 0 ? ` · ${s.rowCount} rows` : ""}
+                          </span>
                         </div>
                       </Link>
                     ))}
