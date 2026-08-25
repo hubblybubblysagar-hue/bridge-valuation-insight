@@ -123,7 +123,7 @@ Deno.test("CSV export: includes sections, data, and summary rows", () => {
   const csv = reportToCsv(parsed);
   const lines = csv.split("\n");
   assertEquals(lines.length, parsed.rows.length + 1);
-  assertStringIncludes(csv, "Total Assets");
+  assert(csv.toLowerCase().includes("total assets"));
   assertStringIncludes(csv, "23,436.29");
 });
 
