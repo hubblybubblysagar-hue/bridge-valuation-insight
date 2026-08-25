@@ -202,6 +202,48 @@ Supabase calls. Must stay this way.
 
 ## 11. Change Log
 
+- **2026-08-25 — Extraction Hardening: deterministic QuickBooks truth layer**
+  - **Architecture (locked decision):** Acquire → Preserve → Parse → Validate
+    → Normalize → Persist. AI comes only after this layer; never
+    QuickBooks → AI → report. `CompanyStartDate` is informational metadata
+    only, never a history cutoff.
+  - **Parser v2 (`src/lib/qb-report.ts`):** recursive traversal of the real
+    QBO shape (`Header`/`Rows`/`Summary`, capital keys; lowercase tolerated).
+    Emits one fully-attributed flat row per source node (`sequence`, `depth`,
+    `rowType`, `sectionPath`, `accountId`, values keyed by column). Fixes the
+    v1 bug (lowercase `raw.header` check) that produced `row_count: 0` on
+    every snapshot. Completeness guarantee: `rows.length ===
+    countSourceNodes(payload)` — regression-tested against real sandbox
+    payloads in `tests/fixtures/qb-reports.ts`.
+  - **Validation engine (`src/lib/qb-validate.ts`):** structure-aware checks
+    (BS: Assets = L+E; P&L: Income−COGS=Gross Profit, GP−OpEx=Net Operating
+    Income, NOI±Other=Net Income; TB: debits=credits). Every check is
+    pass / fail / not_comparable — cross-report reconciliation only runs when
+    as-of date AND accounting basis match.
+  - **Lifecycle states:** snapshots move beyond `synced` to
+    `retrieved → parsed → validated → ready`, with terminal
+    `api_failed` / `persistence_failed` / `empty_source` / `parse_failed` /
+    `validation_failed`. A 200 OK with zero parsed rows is never "ready".
+  - **Sync manifest:** `quickbooks_sync_runs.results` (jsonb) stores a
+    per-request manifest — report type, request path, period, http status,
+    Intuit error code, sanitized PostgREST error detail, snapshot id, row
+    count, checksum. The 2026-08-25 run's six `snapshot_insert_failed`
+    errors are now diagnosable via `errorDetail` (PG code + message class).
+  - **Immutability:** `raw_payload`, `checksum`, `fetched_at` are never
+    rewritten. Re-parsing updates only `normalized_payload` (which now
+    carries `parser_version` + `parsed_at`), `row_count`, `status` via the
+    `reparseQuickBooksSnapshots` server fn (vault "Re-parse stored reports"
+    button).
+  - **Date-only rendering:** `src/lib/date-only.ts` renders "YYYY-MM-DD"
+    periods without timezone math (fixes Dec 31 → Dec 30 display bug).
+  - **History-aware planning:** periods with a prior `empty_source` snapshot
+    are skipped; earliest data-bearing period is discovered from real
+    snapshots (`discoveredHistoryEarliest`), not assumed.
+  - Tests: `supabase/functions/tests/qb_report_parser_v2_test.ts` (12 tests,
+    real-payload fixtures, parser completeness), pgTAP
+    `quickbooks_sync_lifecycle_test.sql`.
+
+
 - **2026-08-01 — Phase C: QuickBooks repair + automated QA infrastructure**
   - **Root cause fixed:** the edge functions called Vault/state helpers that
     exist only in the `private` schema, but PostgREST resolves RPCs in
