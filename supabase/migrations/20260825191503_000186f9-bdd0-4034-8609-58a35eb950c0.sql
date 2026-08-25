@@ -1,0 +1,1 @@
+ALTER TABLE public.quickbooks_sync_runs ADD COLUMN IF NOT EXISTS results jsonb NOT NULL DEFAULT '[]'::jsonb;
