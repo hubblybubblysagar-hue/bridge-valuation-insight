@@ -29,6 +29,7 @@ import {
   disconnectQuickBooks,
   loadConnectionSummary,
   startQuickBooksOAuth,
+  syncFinancials,
   verifyCompanyInfo,
   type QbConnectionSummary,
 } from "@/lib/quickbooks";
@@ -287,6 +288,34 @@ export function ConnectPage() {
                   ) : (
                     "Verify connection"
                   )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    setBusy("verify");
+                    try {
+                      const result = await syncFinancials();
+                      if (result.status === "completed") {
+                        toast.success(`Synced ${result.successfulCount} reports from QuickBooks`);
+                      } else {
+                        toast.warning(
+                          `Synced ${result.successfulCount} reports; ${result.failedCount} failed.`,
+                        );
+                      }
+                      navigate({ to: "/seller/financial-vault" });
+                    } catch (e) {
+                      toast.error((e as Error).message || "Sync failed");
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                  disabled={busy !== null}
+                  data-testid="qb-sync-button"
+                >
+                  Sync financial reports
+                </Button>
+                <Button variant="outline" onClick={() => navigate({ to: "/seller/financial-vault" })}>
+                  Open Financial Vault
                 </Button>
                 <Button variant="outline" onClick={() => navigate({ to: "/seller/business" })}>
                   Continue to business details
