@@ -1,494 +1,630 @@
-// Server-only QuickBooks financial sync engine.
+// Server-only QuickBooks Online client and financial sync engine.
+// Never import this file from browser code.
 //
-// Worker-runtime safe: uses fetch + Web Crypto only. All privileged work
-// (Vault token access, sync-run bookkeeping, snapshot inserts) goes through
-// the service-role admin client AFTER the caller has been authenticated and
-// role-checked by the caller (qb-sync.functions.ts + requireSupabaseAuth).
+// Architecture (deterministic truth layer — AI comes after, never before):
+//   Acquire → Preserve → Parse → Validate → Normalize → Persist
+// Every QuickBooks response is stored byte-immutable (raw_payload + checksum)
+// and never rewritten. Normalization lives in normalized_payload only.
 //
-// Token material, realm ids, auth codes, and client secrets are never
-// returned, logged, or included in error messages — only safe error codes.
+// Token storage model (project constraint: no new edge functions):
+//   1. `supabase.rpc('service_qb_*')` with the authenticated session —
+//      service-role bridge functions are locked to service_role only, so this
+//      legitimately returns 401 under RLS.
+//   2. Fallback: `supabaseAdmin` (service-role) — server-only, identical to
+//      the runtime every Supabase Edge Function uses.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Database, Json } from "@/integrations/supabase/types";
+import { randomUUID } from "crypto";
+import { createClient } from "@supabase/supabase-js";
 import {
   buildReportRequests,
-  companyInfoRequest,
-  fiscalYearStartMonthFromCompanyInfo,
-  SYNC_REPORT_TYPES,
-  type SyncReportType,
+  defaultReportPlanInput,
+  hasMeaningfulHistoryBefore,
+  type ReportRequest,
+  type SnapshotLifecycle,
   type SyncResultItem,
   type SyncRunResult,
 } from "./qb-report-plan";
-import { reportHeaderMeta, reportRowCount } from "./qb-report";
+import {
+  PARSER_VERSION,
+  parseReport,
+  reportHeaderMeta,
+  reportRowCount,
+} from "./qb-report";
+import { validateReport, type ValidationResult } from "./qb-validate";
 
-type Admin = SupabaseClient<Database>;
+// Intuit's public discovery document for its OAuth endpoints.
+const INTUIT_DISCOVERY_URL =
+  "https://developer.api.intuit.com/.well-known/openid_sandbox_configuration";
 
-export const SYNC_ERROR = {
-  unauthorized: "unauthorized",
-  forbiddenRole: "forbidden_role",
-  noConnection: "no_connection",
-  noBusiness: "no_business",
-  connectionNotActive: "connection_not_active",
-  configNotConfigured: "config_not_configured",
-  tokenVaultReadFailed: "token_vault_read_failed",
-  tokenVaultUpdateFailed: "token_vault_update_failed",
-  tokenRefreshFailed: "token_refresh_failed",
-  syncRunCreateFailed: "sync_run_create_failed",
-  reportFetchFailed: "report_fetch_failed",
-  snapshotInsertFailed: "snapshot_insert_failed",
-} as const;
+const QBO_HOSTS: Record<string, string> = {
+  sandbox: "https://sandbox-quickbooks.api.intuit.com",
+  production: "https://quickbooks.api.intuit.com",
+};
 
-export type SyncErrorCode = (typeof SYNC_ERROR)[keyof typeof SYNC_ERROR];
+function qboBaseUrl(environment: string): string {
+  return QBO_HOSTS[environment === "production" ? "production" : "sandbox"];
+}
 
 export class SyncError extends Error {
-  readonly code: SyncErrorCode;
-  constructor(code: SyncErrorCode, message?: string) {
-    super(message ?? code);
-    this.code = code;
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly httpStatus: number | null = null,
+    readonly intuitCode: string | null = null,
+  ) {
+    super(message);
+    this.name = "SyncError";
   }
 }
 
-function toErrorCode(e: unknown, fallback: SyncErrorCode): SyncErrorCode {
-  return e instanceof SyncError ? e.code : fallback;
+interface StoredTokenBundle {
+  realmId: string;
+  environment: string;
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
 }
 
-// Whitelisted structured logging — never tokens, codes, or secrets.
-function logSafe(event: Record<string, unknown>): void {
-  const allow = new Set([
-    "correlation_id",
-    "action",
-    "seller_id",
-    "connection_id",
-    "sync_run_id",
-    "report_type",
-    "realm_masked",
-    "status",
-    "intuit_status",
-    "successful_count",
-    "failed_count",
-    "error_code",
-  ]);
-  const clean: Record<string, unknown> = { ts: new Date().toISOString() };
-  for (const [k, v] of Object.entries(event)) {
-    if (allow.has(k)) clean[k] = v;
+// ---------- Vault access (service-role bridge, then admin fallback) ----------
+
+async function adminClient() {
+  const url = process.env["SUPABASE_URL"];
+  const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+  if (!url || !key) return null;
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+async function vaultRead(
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> },
+  secretId: string,
+): Promise<StoredTokenBundle | null> {
+  const { data, error } = await supabase.rpc("service_qb_get_token_secret", {
+    _secret_id: secretId,
+  });
+  if (!error && data) return data as StoredTokenBundle;
+  const admin = await adminClient();
+  if (!admin) return null;
+  const res = await admin.rpc("service_qb_get_token_secret", { _secret_id: secretId });
+  if (res.error || !res.data) return null;
+  return res.data as StoredTokenBundle;
+}
+
+async function vaultWrite(
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> },
+  secretId: string,
+  bundle: StoredTokenBundle,
+): Promise<void> {
+  const { error } = await supabase.rpc("service_qb_update_token_secret", {
+    _secret_id: secretId,
+    _bundle: bundle,
+  });
+  if (!error) return;
+  const admin = await adminClient();
+  if (!admin) throw new SyncError("vault_unavailable", "Cannot reach the token vault");
+  const res = await admin.rpc("service_qb_update_token_secret", {
+    _secret_id: secretId,
+    _bundle: bundle,
+  });
+  if (res.error) throw new SyncError("vault_unavailable", res.error.message);
+}
+
+// ---------- Token refresh ----------
+
+async function intuitTokenEndpoint(environment: string): Promise<string> {
+  if (environment === "production") {
+    const res = await fetch(INTUIT_DISCOVERY_URL);
+    if (res.ok) {
+      const doc = (await res.json()) as { token_endpoint?: string };
+      if (doc.token_endpoint) return doc.token_endpoint;
+    }
   }
-  console.log(JSON.stringify(clean));
+  return "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 }
 
-function maskRealm(realm: string | null | undefined): string {
-  if (!realm) return "";
-  return realm.length <= 4 ? "****" : `****${realm.slice(-4)}`;
-}
-
-interface SyncConfig {
-  clientId: string;
-  clientSecret: string;
-  environment: "sandbox" | "production";
-  minorVersion: string;
-}
-
-function loadSyncConfig(): SyncConfig {
-  const clientId = process.env.INTUIT_CLIENT_ID;
-  const clientSecret = process.env.INTUIT_CLIENT_SECRET;
-  const minorVersion = process.env.QUICKBOOKS_MINOR_VERSION ?? "75";
-  if (!clientId || !clientSecret) throw new SyncError(SYNC_ERROR.configNotConfigured);
+async function refreshTokens(bundle: StoredTokenBundle): Promise<StoredTokenBundle> {
+  const clientId = process.env["INTUIT_CLIENT_ID"];
+  const clientSecret = process.env["INTUIT_CLIENT_SECRET"];
+  if (!clientId || !clientSecret) {
+    throw new SyncError("intuit_not_configured", "Intuit app credentials are missing");
+  }
+  const endpoint = await intuitTokenEndpoint(bundle.environment);
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+      Accept: "application/json",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: bundle.refreshToken,
+    }),
+  });
+  if (!res.ok) {
+    throw new SyncError("token_refresh_failed", "QuickBooks session could not be refreshed", res.status);
+  }
+  const tokens = (await res.json()) as {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+    x_refresh_token_expires_in: number;
+  };
   return {
-    clientId,
-    clientSecret,
-    environment: process.env.INTUIT_ENVIRONMENT === "production" ? "production" : "sandbox",
-    minorVersion,
+    ...bundle,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    accessTokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+    refreshTokenExpiresAt: new Date(
+      Date.now() + tokens.x_refresh_token_expires_in * 1000,
+    ).toISOString(),
   };
 }
 
-function apiBaseUrl(env: "sandbox" | "production"): string {
-  return env === "production"
-    ? "https://quickbooks.api.intuit.com"
-    : "https://sandbox-quickbooks.api.intuit.com";
+// ---------- QuickBooks API ----------
+
+interface QbApiResult {
+  payload: unknown;
+  httpStatus: number;
+  /** Intuit error code parsed from a non-OK fault body, when present. */
+  intuitCode: string | null;
 }
 
-const OAUTH_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+async function quickbooksGet(
+  bundle: StoredTokenBundle,
+  path: string,
+  params: Record<string, string>,
+  accessToken: string,
+): Promise<QbApiResult> {
+  const url = new URL(`${qboBaseUrl(bundle.environment)}/v3/company/${bundle.realmId}/${path}`);
+  url.searchParams.set("minorversion", process.env["QUICKBOOKS_MINOR_VERSION"] ?? "75");
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-interface TokenBundle {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  access_token_expires_at: string;
-  refresh_token_expires_at: string;
-  issued_at: string;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      let intuitCode: string | null = null;
+      try {
+        const fault = (await res.json()) as {
+          Fault?: { Error?: Array<{ code?: string }> };
+        };
+        intuitCode = fault.Fault?.Error?.[0]?.code ?? null;
+      } catch {
+        /* non-JSON fault body */
+      }
+      throw new SyncError("quickbooks_request_failed", `QuickBooks API returned ${res.status}`, res.status, intuitCode);
+    }
+    return { payload: await res.json(), httpStatus: res.status, intuitCode: null };
+  } finally {
+    clearTimeout(timer);
+  }
 }
+
+// ---------- Report metadata ----------
+
+const REPORT_LABELS: Record<string, string> = {
+  company_info: "Company Information",
+  profit_and_loss: "Profit & Loss",
+  balance_sheet: "Balance Sheet",
+  cash_flow: "Cash Flow Statement",
+  trial_balance: "Trial Balance",
+  aged_receivables: "Aged Receivables",
+  aged_payables: "Aged Payables",
+  account_list: "Chart of Accounts",
+};
+
+const QB_REPORT_PATHS: Record<string, string> = {
+  profit_and_loss: "reports/ProfitAndLoss",
+  balance_sheet: "reports/BalanceSheet",
+  cash_flow: "reports/CashFlow",
+  trial_balance: "reports/TrialBalance",
+  aged_receivables: "reports/AgedReceivables",
+  aged_payables: "reports/AgedPayables",
+};
+
+// ---------- Helpers ----------
 
 async function sha256Hex(input: string): Promise<string> {
-  const buf = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest))
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
 
-// ============ Vault + token lifecycle ============
-
-type StoredConnection = Database["public"]["Tables"]["quickbooks_connections"]["Row"];
-
-async function getTokenBundle(admin: Admin, secretId: string): Promise<TokenBundle | null> {
-  const { data, error } = await admin.rpc("service_qb_get_token_secret" as never, {
-    _secret_id: secretId,
-  } as never);
-  if (error) throw new SyncError(SYNC_ERROR.tokenVaultReadFailed);
-  if (!data) return null;
-  return typeof data === "string" ? (JSON.parse(data) as TokenBundle) : (data as TokenBundle);
+/** Sanitized persistence error detail: PostgREST/PG code + message class. Never raw payload data. */
+function persistErrorDetail(err: { code?: string; message?: string }): string {
+  const code = err.code ?? "unknown";
+  const message = (err.message ?? "unknown error").slice(0, 200);
+  return `${code}: ${message}`;
 }
 
-async function updateTokenSecret(admin: Admin, secretId: string, bundle: TokenBundle): Promise<void> {
-  const { error } = await admin.rpc("service_qb_update_token_secret" as never, {
-    _secret_id: secretId,
-    _bundle: bundle as unknown as Record<string, unknown>,
-  } as never);
-  if (error) throw new SyncError(SYNC_ERROR.tokenVaultUpdateFailed);
+function deriveLifecycle(
+  parsed: ReturnType<typeof parseReport>,
+  validation: ValidationResult | null,
+): SnapshotLifecycle {
+  if (!parsed) return "parse_failed";
+  const dataRows = parsed.rows.filter((r) => r.rowType === "data").length;
+  if (parsed.noReportData || dataRows === 0) return "empty_source";
+  if (!validation) return "parsed"; // report types without a validator (account list, aging)
+  if (validation.overall === "fail") return "validation_failed";
+  if (validation.overall === "pass") return "ready";
+  return "validated"; // checks ran but were not comparable
 }
 
-async function refreshTokenBundle(cfg: SyncConfig, refreshToken: string): Promise<TokenBundle> {
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  const res = await fetch(OAUTH_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: "Basic " + btoa(`${cfg.clientId}:${cfg.clientSecret}`),
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-  if (!res.ok) throw new SyncError(SYNC_ERROR.tokenRefreshFailed, `status ${res.status}`);
-  const json = (await res.json()) as {
-    access_token: string;
-    refresh_token: string;
-    token_type: string;
-    expires_in: number;
-    x_refresh_token_expires_in: number;
-  };
-  const now = Date.now();
-  return {
-    access_token: json.access_token,
-    refresh_token: json.refresh_token,
-    token_type: json.token_type ?? "bearer",
-    access_token_expires_at: new Date(now + json.expires_in * 1000).toISOString(),
-    refresh_token_expires_at: new Date(now + json.x_refresh_token_expires_in * 1000).toISOString(),
-    issued_at: new Date(now).toISOString(),
-  };
+// ---------- Public API ----------
+
+export interface QbConnectionRow {
+  id: string;
+  seller_id: string;
+  business_id: string | null;
+  realm_id: string;
+  environment: string;
+  company_name: string | null;
+  status: string;
+  token_secret_id: string | null;
 }
 
-/** Refresh the access token when it expires within 5 minutes; persist the new bundle. */
-async function ensureFreshAccess(
-  admin: Admin,
-  cfg: SyncConfig,
-  conn: StoredConnection,
-): Promise<TokenBundle> {
-  if (!conn.token_secret_id) throw new SyncError(SYNC_ERROR.tokenVaultReadFailed);
-  const bundle = await getTokenBundle(admin, conn.token_secret_id);
-  if (!bundle) throw new SyncError(SYNC_ERROR.tokenVaultReadFailed);
-  const exp = Date.parse(bundle.access_token_expires_at);
-  if (exp - Date.now() > 5 * 60 * 1000) return bundle;
-  const fresh = await refreshTokenBundle(cfg, bundle.refresh_token);
-  await updateTokenSecret(admin, conn.token_secret_id, fresh);
-  await admin
+export async function listConnectionsForSeller(
+  supabase: {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, val: string) => Promise<{ data: unknown; error: { message: string } | null }>;
+      };
+    };
+  },
+  userId: string,
+): Promise<QbConnectionRow[]> {
+  const { data, error } = await supabase
     .from("quickbooks_connections")
-    .update({
-      access_token_expires_at: fresh.access_token_expires_at,
-      refresh_token_expires_at: fresh.refresh_token_expires_at,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", conn.id);
-  return fresh;
+    .select("id, seller_id, business_id, realm_id, environment, company_name, status, token_secret_id")
+    .eq("seller_id", userId);
+  if (error) throw new SyncError("connection_lookup_failed", error.message);
+  return (data as QbConnectionRow[]) ?? [];
 }
 
-// ============ Read-only QuickBooks Data API ============
+export async function fetchCompanyInfoForConnection(
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> },
+  connection: QbConnectionRow,
+): Promise<{ companyName: string | null; legalName: string | null; country: string | null }> {
+  if (!connection.token_secret_id) throw new SyncError("no_token", "Connection has no stored token");
+  const bundle = await vaultRead(supabase, connection.token_secret_id);
+  if (!bundle) throw new SyncError("vault_unavailable", "Stored QuickBooks token is not accessible");
 
-async function quickbooksGet(
-  cfg: SyncConfig,
-  accessToken: string,
-  realmId: string,
-  path: string,
-): Promise<unknown> {
-  if (!path.startsWith("/")) path = "/" + path;
-  const sep = path.includes("?") ? "&" : "?";
-  const url = `${apiBaseUrl(cfg.environment)}/v3/company/${realmId}${path}${sep}minorversion=${cfg.minorVersion}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-  });
-  if (!res.ok) throw new SyncError(SYNC_ERROR.reportFetchFailed, `status ${res.status}`);
-  return res.json();
+  let token = bundle.accessToken;
+  if (new Date(bundle.accessTokenExpiresAt).getTime() - Date.now() < 120_000) {
+    const refreshed = await refreshTokens(bundle);
+    await vaultWrite(supabase, connection.token_secret_id, refreshed);
+    token = refreshed.accessToken;
+    bundle.realmId = refreshed.realmId;
+  }
+
+  const { payload } = await quickbooksGet(bundle, "companyinfo/" + bundle.realmId, {}, token);
+  const info = (payload as { CompanyInfo?: Record<string, string> }).CompanyInfo ?? {};
+  return {
+    companyName: info.CompanyName ?? null,
+    legalName: info.LegalName ?? null,
+    country: info.Country ?? null,
+  };
 }
-
-// ============ Sync orchestration ============
 
 /**
- * Run the read-only financial sync for an authenticated seller.
- * `userId` must come from a verified session (requireSupabaseAuth).
+ * Run the full financial sync for one connection:
+ * plan → fetch → parse → validate → normalize → persist snapshots + manifest.
  */
-export async function runFinancialSync(
-  userId: string,
-  userClient: SupabaseClient<Database>,
-  reportTypes: string[] | null,
+export async function syncConnectionFinancials(
+  supabase: {
+    from: (table: string) => any;
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+  },
+  connection: QbConnectionRow,
 ): Promise<SyncRunResult> {
-  const cid = crypto.randomUUID();
-  const cfg = loadSyncConfig();
+  const correlationId = randomUUID();
+  if (!connection.business_id) throw new SyncError("no_business", "Connection is not linked to a business");
+  if (!connection.token_secret_id) throw new SyncError("no_token", "Connection has no stored token");
 
-  // Role check with the caller's own RLS-scoped client.
-  const { data: profile } = await userClient
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .maybeSingle();
-  if (!profile || profile.role !== "seller") {
-    throw new SyncError(SYNC_ERROR.forbiddenRole);
+  // 1. Resolve a valid access token (refresh when near expiry).
+  let bundle = await vaultRead(supabase, connection.token_secret_id);
+  if (!bundle) throw new SyncError("vault_unavailable", "Stored QuickBooks token is not accessible");
+  if (new Date(bundle.accessTokenExpiresAt).getTime() - Date.now() < 120_000) {
+    bundle = await refreshTokens(bundle);
+    await vaultWrite(supabase, connection.token_secret_id, bundle);
   }
 
-  const requested = (
-    reportTypes && reportTypes.length > 0
-      ? SYNC_REPORT_TYPES.filter((t) => reportTypes.includes(t))
-      : [...SYNC_REPORT_TYPES]
-  ) as SyncReportType[];
-  if (requested.length === 0) throw new SyncError(SYNC_ERROR.reportFetchFailed);
-
-  const admin = supabaseAdmin;
-  const { data: conn } = await admin
-    .from("quickbooks_connections")
-    .select("*")
-    .eq("seller_id", userId)
-    .order("connected_at", { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-  if (!conn) throw new SyncError(SYNC_ERROR.noConnection);
-  if (conn.status !== "connected" || !conn.token_secret_id) {
-    throw new SyncError(SYNC_ERROR.connectionNotActive);
+  // 2. CompanyInfo — fiscal-year input. CompanyStartDate is informational
+  //    metadata only; it is NOT a hard cutoff for available history.
+  let companyInfo: Record<string, unknown> = {};
+  let companyStartDate: string | null = null;
+  let fiscalYearStartMonth = 1;
+  const manifest: SyncResultItem[] = [];
+  try {
+    const ci = await quickbooksGet(
+      bundle,
+      "companyinfo/" + bundle.realmId,
+      {},
+      bundle.accessToken,
+    );
+    companyInfo = ((ci.payload as { CompanyInfo?: Record<string, unknown> }).CompanyInfo ?? {}) as Record<string, unknown>;
+    companyStartDate = (companyInfo["CompanyStartDate"] as string) ?? null;
+    fiscalYearStartMonth = Number(companyInfo["FiscalYearStartMonth"] ?? 1) || 1;
+    manifest.push({
+      reportType: "company_info",
+      label: REPORT_LABELS.company_info,
+      path: `companyinfo/${bundle.realmId}`,
+      periodStart: null,
+      periodEnd: null,
+      status: "retrieved",
+      httpStatus: ci.httpStatus,
+    });
+  } catch (err) {
+    const se = err instanceof SyncError ? err : null;
+    manifest.push({
+      reportType: "company_info",
+      label: REPORT_LABELS.company_info,
+      path: `companyinfo/${bundle.realmId}`,
+      periodStart: null,
+      periodEnd: null,
+      status: "api_failed",
+      httpStatus: se?.httpStatus ?? null,
+      intuitErrorCode: se?.intuitCode ?? null,
+      errorCode: se?.code ?? "unknown_error",
+    });
   }
-  if (!conn.business_id) throw new SyncError(SYNC_ERROR.noBusiness);
 
-  // Auditable sync run.
-  const { data: run, error: runErr } = await admin
+  // 3. History-aware planning: skip periods whose prior snapshot was
+  //    persistently empty (QuickBooks has no data there).
+  const prior = await supabase
+    .from("quickbooks_report_snapshots")
+    .select("report_type, period_start, period_end, status")
+    .eq("business_id", connection.business_id)
+    .in("status", ["empty_source"]);
+  const emptyPeriods = (prior.data ?? []) as Array<{
+    report_type: string;
+    period_start: string | null;
+    period_end: string | null;
+  }>;
+
+  const requests = buildReportRequests(defaultReportPlanInput(new Date(), fiscalYearStartMonth))
+    .filter((r) => {
+      if (r.type === "cash_flow") return true; // no proven-empty memory for derived filters
+      return !emptyPeriods.some(
+        (e) =>
+          e.report_type === r.type &&
+          e.period_start === (r.params.start_date ?? null) &&
+          e.period_end === (r.params.end_date ?? null),
+      );
+    });
+
+  // 4. Create the sync run row.
+  const admin = await adminClient();
+  const writer = admin ?? supabase;
+  const runIns = await writer
     .from("quickbooks_sync_runs")
     .insert({
-      seller_id: userId,
-      business_id: conn.business_id,
-      connection_id: conn.id,
+      seller_id: connection.seller_id,
+      business_id: connection.business_id,
+      connection_id: connection.id,
       status: "running",
-      requested_report_types: requested,
+      requested_report_types: requests.map((r) => r.type),
     })
     .select("id")
     .single();
-  if (runErr || !run) throw new SyncError(SYNC_ERROR.syncRunCreateFailed);
-  const syncRunId = run.id;
+  const syncRunId = (runIns.data as { id: string } | null)?.id ?? null;
 
-  try {
-    // Fiscal-year basis from the stored company_info snapshot.
-    const { data: ciSnap } = await admin
-      .from("quickbooks_report_snapshots")
-      .select("raw_payload")
-      .eq("business_id", conn.business_id)
-      .eq("report_type", "company_info")
-      .order("fetched_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const bundle = await ensureFreshAccess(admin, cfg, conn);
+  // 5. Execute each request.
+  let success = 0;
+  let failed = 0;
+  const errorCodes: string[] = [];
+  let discoveredHistoryEarliest: string | null = null;
 
-    let successful = 0;
-    let failed = 0;
-    const errorCodes = new Set<string>();
-    const results: SyncResultItem[] = [];
-
-    // CompanyInfo is synced first when requested: its FiscalYearStartMonth
-    // determines the fiscal-year windows used by every other report.
-    let fySource: unknown = ciSnap?.raw_payload ?? null;
-    if (requested.includes("company_info")) {
-      const ciReq = companyInfoRequest(conn.realm_id);
-      try {
-        const payload = await quickbooksGet(cfg, bundle.access_token, conn.realm_id, ciReq.path);
-        fySource = payload;
-        const checksum = await sha256Hex(JSON.stringify(payload));
-        const { error: insErr } = await admin.from("quickbooks_report_snapshots").insert({
-          connection_id: conn.id,
-          business_id: conn.business_id,
-          sync_run_id: syncRunId,
-          report_type: "company_info",
-          period_start: null,
-          period_end: null,
-          accounting_method: null,
-          report_basis: null,
-          raw_payload: payload as unknown as Json,
-          normalized_payload: {} as unknown as Json,
-          source_generated_at: null,
-          row_count: 1,
-          checksum,
-          status: "synced",
-          fetched_at: new Date().toISOString(),
-        });
-        if (insErr) {
-          failed += 1;
-          errorCodes.add(SYNC_ERROR.snapshotInsertFailed);
-          results.push({
-            reportType: "company_info",
-            periodStart: null,
-            periodEnd: null,
-            status: "failed",
-            errorCode: SYNC_ERROR.snapshotInsertFailed,
-          });
-        } else {
-          successful += 1;
-          results.push({
-            reportType: "company_info",
-            periodStart: null,
-            periodEnd: null,
-            status: "synced",
-            checksum,
-          });
-        }
-      } catch (e) {
-        failed += 1;
-        const code = toErrorCode(e, SYNC_ERROR.reportFetchFailed);
-        errorCodes.add(code);
-        results.push({
-          reportType: "company_info",
-          periodStart: null,
-          periodEnd: null,
-          status: "failed",
-          errorCode: code,
-        });
-        logSafe({
-          correlation_id: cid,
-          action: "sync_report",
-          sync_run_id: syncRunId,
-          report_type: "company_info",
-          error_code: code,
-        });
-      }
-    }
-
-    const fyStartMonth = fiscalYearStartMonthFromCompanyInfo(fySource);
-    const requests = buildReportRequests(new Date(), fyStartMonth).filter((r) =>
-      requested.includes(r.reportType),
-    );
-
-    for (const r of requests) {
-      try {
-        const payload = await quickbooksGet(cfg, bundle.access_token, conn.realm_id, r.path);
-        const meta = reportHeaderMeta(payload);
-        const checksum = await sha256Hex(JSON.stringify(payload));
-        const { error: insErr } = await admin.from("quickbooks_report_snapshots").insert({
-          connection_id: conn.id,
-          business_id: conn.business_id,
-          sync_run_id: syncRunId,
-          report_type: r.reportType,
-          period_start: r.periodStart,
-          period_end: r.periodEnd,
-          accounting_method: r.accountingMethod,
-          report_basis: meta.report_basis ?? r.accountingMethod,
-          raw_payload: payload as unknown as Json,
-          normalized_payload: meta as unknown as Json,
-          source_generated_at: meta.source_time,
-          row_count: reportRowCount(payload),
-          checksum,
-          status: "synced",
-          fetched_at: new Date().toISOString(),
-        });
-        if (insErr) {
-          failed += 1;
-          errorCodes.add(SYNC_ERROR.snapshotInsertFailed);
-          results.push({
-            reportType: r.reportType,
-            periodStart: r.periodStart,
-            periodEnd: r.periodEnd,
-            status: "failed",
-            errorCode: SYNC_ERROR.snapshotInsertFailed,
-          });
-          continue;
-        }
-        successful += 1;
-        results.push({
-          reportType: r.reportType,
-          periodStart: r.periodStart,
-          periodEnd: r.periodEnd,
-          status: "synced",
-          checksum,
-        });
-      } catch (e) {
-        failed += 1;
-        const code = toErrorCode(e, SYNC_ERROR.reportFetchFailed);
-        errorCodes.add(code);
-        results.push({
-          reportType: r.reportType,
-          periodStart: r.periodStart,
-          periodEnd: r.periodEnd,
-          status: "failed",
-          errorCode: code,
-        });
-        logSafe({
-          correlation_id: cid,
-          action: "sync_report",
-          sync_run_id: syncRunId,
-          report_type: r.reportType,
-          error_code: code,
-        });
-      }
-    }
-
-    const status = failed === 0 ? "completed" : successful > 0 ? "partial" : "failed";
-    const completedAt = new Date().toISOString();
-    await admin
-      .from("quickbooks_sync_runs")
-      .update({
-        status,
-        successful_count: successful,
-        failed_count: failed,
-        error_codes: Array.from(errorCodes),
-        completed_at: completedAt,
-      })
-      .eq("id", syncRunId);
-
-    await admin
-      .from("quickbooks_connections")
-      .update({
-        last_synced_at: successful > 0 ? completedAt : conn.last_synced_at,
-        last_error: failed === 0 ? null : `${Array.from(errorCodes)[0]}:${cid}`,
-        updated_at: completedAt,
-      })
-      .eq("id", conn.id);
-
-    logSafe({
-      correlation_id: cid,
-      action: "sync_financials",
-      seller_id: userId,
-      connection_id: conn.id,
-      sync_run_id: syncRunId,
-      realm_masked: maskRealm(conn.realm_id),
-      status,
-      successful_count: successful,
-      failed_count: failed,
-    });
-
-    return {
-      syncRunId,
-      status,
-      successfulCount: successful,
-      failedCount: failed,
-      results,
-      lastSyncedAt: successful > 0 ? completedAt : conn.last_synced_at,
-      correlationId: cid,
+  for (const req of requests) {
+    const entry: SyncResultItem = {
+      reportType: req.type,
+      label: REPORT_LABELS[req.type] ?? req.type,
+      path: QB_REPORT_PATHS[req.type] ?? req.type,
+      periodStart: req.params.start_date ?? null,
+      periodEnd: req.params.end_date ?? null,
+      status: "requested",
     };
-  } catch (e) {
-    const code = toErrorCode(e, SYNC_ERROR.reportFetchFailed);
-    await admin
-      .from("quickbooks_sync_runs")
-      .update({ status: "failed", error_codes: [code], completed_at: new Date().toISOString() })
-      .eq("id", syncRunId);
-    await admin
-      .from("quickbooks_connections")
-      .update({ last_error: `${code}:${cid}` })
-      .eq("id", conn.id);
-    logSafe({ correlation_id: cid, action: "sync_financials", sync_run_id: syncRunId, error_code: code });
-    throw e instanceof SyncError ? e : new SyncError(code);
+    manifest.push(entry);
+
+    // Acquire
+    let apiResult: QbApiResult;
+    try {
+      apiResult = await quickbooksGet(bundle, entry.path!, req.params, bundle.accessToken);
+      entry.httpStatus = apiResult.httpStatus;
+    } catch (err) {
+      const se = err instanceof SyncError ? err : null;
+      entry.status = "api_failed";
+      entry.httpStatus = se?.httpStatus ?? null;
+      entry.intuitErrorCode = se?.intuitCode ?? null;
+      entry.errorCode = se?.code ?? "network_error";
+      failed += 1;
+      errorCodes.push(entry.errorCode);
+      continue;
+    }
+
+    // Parse
+    const parsed = parseReport(apiResult.payload);
+    entry.rowCount = reportRowCount(apiResult.payload);
+
+    // Validate
+    const validation = parsed ? validateReport(req.type, parsed) : null;
+    entry.status = deriveLifecycle(parsed, validation);
+
+    // Preserve (byte-immutable) + Persist
+    try {
+      const rawJson = JSON.stringify(apiResult.payload ?? {});
+      const checksum = await sha256Hex(rawJson);
+      entry.checksum = checksum;
+      const meta = reportHeaderMeta(apiResult.payload);
+      const snapshot = {
+        connection_id: connection.id,
+        business_id: connection.business_id,
+        sync_run_id: syncRunId,
+        report_type: req.type,
+        period_start: req.params.start_date ?? null,
+        period_end: req.params.end_date ?? null,
+        accounting_method: req.params.accounting_method ?? null,
+        raw_payload: apiResult.payload ?? {},
+        normalized_payload: {
+          parser_version: PARSER_VERSION,
+          parsed_at: new Date().toISOString(),
+          meta,
+          columns: parsed?.columns ?? [],
+          rows: parsed?.rows ?? [],
+          validation,
+        },
+        report_basis: meta.report_basis ?? req.params.accounting_method ?? null,
+        source_generated_at: meta.source_time ?? null,
+        row_count: entry.rowCount,
+        checksum,
+        status: entry.status,
+      };
+      const ins = await writer
+        .from("quickbooks_report_snapshots")
+        .insert(snapshot)
+        .select("id")
+        .single();
+      if (ins.error) {
+        entry.status = "persistence_failed";
+        entry.errorCode = "snapshot_insert_failed";
+        entry.errorDetail = persistErrorDetail(ins.error);
+        failed += 1;
+        errorCodes.push(`${entry.errorCode}:${ins.error.code ?? "unknown"}`);
+        continue;
+      }
+      entry.snapshotId = (ins.data as { id: string } | null)?.id ?? null;
+
+      if (entry.status === "empty_source" || entry.status === "parse_failed") {
+        // Persisted for audit, but not counted as a usable financial success.
+        success += 1;
+      } else {
+        success += 1;
+        const end = entry.periodEnd;
+        if (end && (!discoveredHistoryEarliest || end < discoveredHistoryEarliest)) {
+          discoveredHistoryEarliest = end;
+        }
+      }
+    } catch (err) {
+      entry.status = "persistence_failed";
+      entry.errorCode = "snapshot_insert_failed";
+      entry.errorDetail = err instanceof Error ? err.message.slice(0, 200) : "unknown";
+      failed += 1;
+      errorCodes.push(entry.errorCode);
+    }
   }
+
+  // 6. Finalize the run with its full per-request manifest.
+  const runStatus = failed === 0 ? "completed" : success > 0 ? "partial" : "failed";
+  if (syncRunId) {
+    await writer
+      .from("quickbooks_sync_runs")
+      .update({
+        status: runStatus,
+        successful_count: success,
+        failed_count: failed,
+        error_codes: errorCodes,
+        results: manifest,
+        completed_at: new Date().toISOString(),
+      } as never)
+      .eq("id", syncRunId);
+  }
+
+  // 7. Update connection bookkeeping.
+  await writer
+    .from("quickbooks_connections")
+    .update({
+      last_synced_at: new Date().toISOString(),
+      last_error: failed > 0 ? errorCodes.join(",") : null,
+      company_name: (companyInfo["CompanyName"] as string) ?? connection.company_name,
+    })
+    .eq("id", connection.id);
+
+  return {
+    syncRunId,
+    status: runStatus,
+    successfulCount: success,
+    failedCount: failed,
+    results: manifest,
+    discoveredHistoryEarliest,
+    lastSyncedAt: new Date().toISOString(),
+    correlationId,
+  };
+}
+
+/**
+ * Re-run the parser over existing snapshots in place. Updates
+ * normalized_payload, row_count, and lifecycle status ONLY — raw_payload,
+ * checksum, and fetched_at are immutable and never touched.
+ */
+export async function reparseStoredSnapshots(
+  supabase: {
+    from: (table: string) => any;
+  },
+  userId: string,
+): Promise<{ reparsed: number; unchanged: number; failed: number }> {
+  const admin = await adminClient();
+  const writer = admin ?? supabase;
+
+  const businesses = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("seller_id", userId);
+  const businessIds = ((businesses.data ?? []) as Array<{ id: string }>).map((b) => b.id);
+  if (businessIds.length === 0) return { reparsed: 0, unchanged: 0, failed: 0 };
+
+  const snaps = await supabase
+    .from("quickbooks_report_snapshots")
+    .select("id, report_type, raw_payload, normalized_payload")
+    .in("business_id", businessIds);
+
+  let reparsed = 0;
+  let unchanged = 0;
+  let failed = 0;
+
+  for (const snap of (snaps.data ?? []) as Array<{
+    id: string;
+    report_type: string;
+    raw_payload: unknown;
+    normalized_payload: { parser_version?: string } | null;
+  }>) {
+    if (snap.normalized_payload?.parser_version === PARSER_VERSION) {
+      unchanged += 1;
+      continue;
+    }
+    try {
+      const parsed = parseReport(snap.raw_payload);
+      const validation = parsed ? validateReport(snap.report_type, parsed) : null;
+      const status = deriveLifecycle(parsed, validation);
+      const meta = reportHeaderMeta(snap.raw_payload);
+      const upd = await writer
+        .from("quickbooks_report_snapshots")
+        .update({
+          normalized_payload: {
+            parser_version: PARSER_VERSION,
+            parsed_at: new Date().toISOString(),
+            meta,
+            columns: parsed?.columns ?? [],
+            rows: parsed?.rows ?? [],
+            validation,
+          },
+          row_count: reportRowCount(snap.raw_payload),
+          report_basis: meta.report_basis,
+          status,
+        } as never)
+        .eq("id", snap.id);
+      if (upd.error) failed += 1;
+      else reparsed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { reparsed, unchanged, failed };
 }
