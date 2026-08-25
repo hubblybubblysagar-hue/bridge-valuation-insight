@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+// Snapshot lifecycle labels shown on vault cards.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -61,6 +62,25 @@ const SECTIONS: {
     types: ["company_info"],
   },
 ];
+
+const SNAPSHOT_STATUS_LABELS: Record<string, string> = {
+  ready: "Validated",
+  validated: "Validated",
+  reconciled: "Reconciled",
+  parsed: "Parsed",
+  retrieved: "Retrieved",
+  empty_source: "Empty source",
+  parse_failed: "Parse failed",
+  validation_failed: "Check failed",
+  reconciliation_warning: "Reconciliation warning",
+  api_failed: "API failed",
+  persistence_failed: "Save failed",
+  synced: "Synced",
+};
+
+function snapshotStatusLabel(status: string): string {
+  return SNAPSHOT_STATUS_LABELS[status] ?? status;
+}
 
 function fmtDate(iso: string | null | undefined): string {
   // Report periods are date-only values — render without timezone math.
