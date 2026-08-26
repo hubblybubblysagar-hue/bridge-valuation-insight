@@ -427,48 +427,135 @@ export async function syncConnectionFinancials(
   if (!connection.business_id) throw new SyncError("no_business", "Connection is not linked to a business");
   if (!connection.token_secret_id) throw new SyncError("no_token", "Connection has no stored token");
 
-  // 1. Resolve a valid access token (refresh when near expiry).
+  // 1. Resolve a valid access token (refresh when near expiry). The bundle is
+  //    snake_case and carries no realm — realm/environment come from the row.
   let bundle = await vaultRead(supabase, connection.token_secret_id);
   if (!bundle) throw new SyncError("vault_unavailable", "Stored QuickBooks token is not accessible");
-  if (new Date(bundle.accessTokenExpiresAt).getTime() - Date.now() < 120_000) {
-    bundle = await refreshTokens(bundle);
+  if (Date.parse(bundle.access_token_expires_at) - Date.now() < 120_000) {
+    bundle = await refreshTokens(bundle, connection.environment);
     await vaultWrite(supabase, connection.token_secret_id, bundle);
   }
+  const ctx: QbContext = {
+    realmId: connection.realm_id,
+    environment: connection.environment,
+    accessToken: bundle.access_token,
+  };
 
-  // 2. CompanyInfo — fiscal-year input. CompanyStartDate is informational
-  //    metadata only; it is NOT a hard cutoff for available history.
   const manifest: SyncResultItem[] = [];
   let companyName: string | null = connection.company_name;
   let fiscalYearStartMonth = 1;
-  const ciReq = companyInfoRequest(bundle.realmId);
+
+  // The writer used for all snapshot/run persistence.
+  const admin = await adminClient();
+  const writer = admin ?? supabase;
+
+  let success = 0;
+  let failed = 0;
+  const errorCodes: string[] = [];
+  let discoveredHistoryEarliest: string | null = null;
+  let syncRunId: string | null = null;
+
+  /** Preserve raw source + derived representation. Never mutates raw data. */
+  const persistSnapshot = async (
+    req: SyncReportRequest,
+    payload: unknown,
+    entry: SyncResultItem,
+    parsed: ReturnType<typeof parseReport>,
+    validation: ValidationResult | null,
+  ): Promise<boolean> => {
+    try {
+      const rawJson = JSON.stringify(payload ?? {});
+      const checksum = await sha256Hex(rawJson);
+      entry.checksum = checksum;
+      const meta = reportHeaderMeta(payload);
+      const ins = await writer
+        .from("quickbooks_report_snapshots")
+        .insert({
+          connection_id: connection.id,
+          business_id: connection.business_id,
+          sync_run_id: syncRunId,
+          report_type: req.reportType,
+          period_start: req.periodStart,
+          period_end: req.periodEnd,
+          accounting_method: req.accountingMethod,
+          raw_payload: payload ?? {},
+          normalized_payload: {
+            parser_version: PARSER_VERSION,
+            parsed_at: new Date().toISOString(),
+            kind: entry.kind,
+            meta,
+            columns: parsed?.columns ?? [],
+            rows: parsed?.rows ?? [],
+            financial_row_count: entry.financialRowCount ?? 0,
+            validation,
+          },
+          report_basis: meta.report_basis ?? req.accountingMethod,
+          source_generated_at: meta.source_time,
+          row_count: entry.rowCount ?? 0,
+          checksum,
+          status: entry.status,
+        })
+        .select("id")
+        .single();
+      if (ins.error) {
+        entry.status = "persistence_failed";
+        entry.persistenceOutcome = "failed";
+        entry.errorCode = "snapshot_insert_failed";
+        entry.errorDetail = persistErrorDetail(ins.error);
+        return false;
+      }
+      entry.snapshotId = (ins.data as { id: string } | null)?.id ?? null;
+      entry.persistenceOutcome = "ok";
+      return true;
+    } catch (err) {
+      entry.status = "persistence_failed";
+      entry.persistenceOutcome = "failed";
+      entry.errorCode = "snapshot_insert_failed";
+      entry.errorDetail = err instanceof Error ? err.message.slice(0, 200) : "unknown";
+      return false;
+    }
+  };
+
+  // 2. CompanyInfo — verified company metadata AND the fiscal-year input.
+  //    It is metadata, never a financial report: it is not parsed as one and
+  //    an empty row count is not a failure. CompanyStartDate stays
+  //    informational — it is not a hard history cutoff.
+  const ciReq = companyInfoRequest(connection.realm_id);
+  const ciEntry: SyncResultItem = {
+    reportType: ciReq.reportType,
+    label: ciReq.label,
+    path: ciReq.path,
+    periodStart: null,
+    periodEnd: null,
+    status: "requested",
+    kind: "company_metadata",
+    parseOutcome: "not_applicable",
+    validationOutcome: "not_applicable",
+  };
+  manifest.push(ciEntry);
+  let ciPayload: unknown = null;
   try {
-    const ci = await quickbooksGet(bundle, ciReq.path, bundle.accessToken);
-    const companyInfo = ((ci.payload as { CompanyInfo?: Record<string, unknown> }).CompanyInfo ??
+    const ci = await quickbooksGet(ctx, ciReq.path);
+    ciPayload = ci.payload;
+    ciEntry.httpStatus = ci.httpStatus;
+    ciEntry.attempts = ci.attempts;
+    ciEntry.sourceOutcome = "ok";
+    ciEntry.status = "retrieved";
+    const companyInfo = ((ci.payload as { CompanyInfo?: Record<string, unknown> })?.CompanyInfo ??
       {}) as Record<string, unknown>;
     companyName = (companyInfo["CompanyName"] as string) ?? companyName;
     fiscalYearStartMonth = Number(companyInfo["FiscalYearStartMonth"] ?? 1) || 1;
-    manifest.push({
-      reportType: ciReq.reportType,
-      label: ciReq.label,
-      path: ciReq.path,
-      periodStart: null,
-      periodEnd: null,
-      status: "retrieved",
-      httpStatus: ci.httpStatus,
-    });
+    ciEntry.rowCount = Object.keys(companyInfo).length;
+    ciEntry.financialRowCount = null;
   } catch (err) {
     const se = err instanceof SyncError ? err : null;
-    manifest.push({
-      reportType: ciReq.reportType,
-      label: ciReq.label,
-      path: ciReq.path,
-      periodStart: null,
-      periodEnd: null,
-      status: "api_failed",
-      httpStatus: se?.httpStatus ?? null,
-      intuitErrorCode: se?.intuitCode ?? null,
-      errorCode: se?.code ?? "unknown_error",
-    });
+    ciEntry.status = se?.code === "quickbooks_source_fault" ? "source_fault" : "api_failed";
+    ciEntry.sourceOutcome = "failed";
+    ciEntry.httpStatus = se?.httpStatus ?? null;
+    ciEntry.intuitErrorCode = se?.intuitCode ?? null;
+    ciEntry.errorCode = se?.code ?? "unknown_error";
+    failed += 1;
+    errorCodes.push(ciEntry.errorCode);
   }
 
   // 3. History-aware planning: skip periods whose prior snapshot was
@@ -497,8 +584,6 @@ export async function syncConnectionFinancials(
     );
 
   // 4. Create the sync run row.
-  const admin = await adminClient();
-  const writer = admin ?? supabase;
   const runIns = await writer
     .from("quickbooks_sync_runs")
     .insert({
@@ -506,11 +591,11 @@ export async function syncConnectionFinancials(
       business_id: connection.business_id,
       connection_id: connection.id,
       status: "running",
-      requested_report_types: requests.map((r) => r.reportType),
+      requested_report_types: [ciReq.reportType, ...requests.map((r) => r.reportType)],
     })
     .select("id")
     .single();
-  const syncRunId = (runIns.data as { id: string } | null)?.id ?? null;
+  syncRunId = (runIns.data as { id: string } | null)?.id ?? null;
   if (!syncRunId) {
     throw new SyncError(
       "sync_run_insert_failed",
@@ -518,13 +603,20 @@ export async function syncConnectionFinancials(
     );
   }
 
-  // 5. Execute each request: Acquire → Parse → Validate → Preserve/Persist.
-  let success = 0;
-  let failed = 0;
-  const errorCodes: string[] = [];
-  let discoveredHistoryEarliest: string | null = null;
+  // Persist the company metadata snapshot now that the run exists.
+  if (ciEntry.status === "retrieved") {
+    if (await persistSnapshot(ciReq, ciPayload, ciEntry, null, null)) success += 1;
+    else {
+      failed += 1;
+      errorCodes.push(ciEntry.errorCode ?? "snapshot_insert_failed");
+    }
+  }
 
-  for (const req of requests) {
+  // 5. Execute each request: Acquire → Parse → Validate → Preserve/Persist.
+  const runRequest = async (
+    req: SyncReportRequest,
+    fallbackOf: SyncReportRequest | null,
+  ): Promise<SyncResultItem> => {
     const entry: SyncResultItem = {
       reportType: req.reportType,
       label: req.label,
@@ -532,90 +624,85 @@ export async function syncConnectionFinancials(
       periodStart: req.periodStart,
       periodEnd: req.periodEnd,
       status: "requested",
+      kind: sourceKindFor(req.reportType),
+      fallbackOfPeriod: fallbackOf
+        ? { start: fallbackOf.periodStart, end: fallbackOf.periodEnd }
+        : null,
     };
     manifest.push(entry);
 
-    // Acquire
+    // Acquire (with bounded retries for transient Intuit faults).
     let apiResult: QbApiResult;
     try {
-      apiResult = await quickbooksGet(bundle, req.path, bundle.accessToken);
+      apiResult = await quickbooksGet(ctx, req.path);
       entry.httpStatus = apiResult.httpStatus;
+      entry.attempts = apiResult.attempts;
+      entry.sourceOutcome = "ok";
     } catch (err) {
       const se = err instanceof SyncError ? err : null;
-      entry.status = "api_failed";
+      const isFault = se?.code === "quickbooks_source_fault";
+      entry.status = isFault ? "source_fault" : "api_failed";
+      entry.sourceOutcome = "failed";
+      entry.parseOutcome = "skipped";
+      entry.validationOutcome = "skipped";
+      entry.persistenceOutcome = "skipped";
       entry.httpStatus = se?.httpStatus ?? null;
       entry.intuitErrorCode = se?.intuitCode ?? null;
+      entry.intuitFaultType = isFault ? "SystemFault" : null;
       entry.errorCode = se?.code ?? "network_error";
+      entry.errorDetail = se?.message.slice(0, 200) ?? null;
       failed += 1;
       errorCodes.push(entry.errorCode);
-      continue;
+      return entry;
     }
 
     // Parse + Validate
     const parsed = parseReport(apiResult.payload);
     entry.rowCount = reportRowCount(apiResult.payload);
+    entry.financialRowCount = financialRowCount(parsed);
     const validation = parsed ? validateReport(req.reportType, parsed) : null;
-    entry.status = deriveLifecycle(parsed, validation);
+    entry.status = deriveLifecycle(parsed, validation, apiResult.payload);
+    entry.parseOutcome =
+      entry.status === "parse_failed" ? "failed" : entry.status === "empty_source" ? "empty" : "ok";
+    entry.validationOutcome = !validation || validation.checks.length === 0
+      ? "not_applicable"
+      : validation.overall === "fail"
+        ? "failed"
+        : "ok";
 
-    // Preserve (byte-immutable) + Persist
-    try {
-      const rawJson = JSON.stringify(apiResult.payload ?? {});
-      const checksum = await sha256Hex(rawJson);
-      entry.checksum = checksum;
-      const meta = reportHeaderMeta(apiResult.payload);
-      const snapshot = {
-        connection_id: connection.id,
-        business_id: connection.business_id,
-        sync_run_id: syncRunId,
-        report_type: req.reportType,
-        period_start: req.periodStart,
-        period_end: req.periodEnd,
-        accounting_method: req.accountingMethod,
-        raw_payload: apiResult.payload ?? {},
-        normalized_payload: {
-          parser_version: PARSER_VERSION,
-          parsed_at: new Date().toISOString(),
-          meta,
-          columns: parsed?.columns ?? [],
-          rows: parsed?.rows ?? [],
-          validation,
-        },
-        report_basis: meta.report_basis ?? req.accountingMethod,
-        source_generated_at: meta.source_time,
-        row_count: entry.rowCount,
-        checksum,
-        status: entry.status,
-      };
-      const ins = await writer
-        .from("quickbooks_report_snapshots")
-        .insert(snapshot)
-        .select("id")
-        .single();
-      if (ins.error) {
-        entry.status = "persistence_failed";
-        entry.errorCode = "snapshot_insert_failed";
-        entry.errorDetail = persistErrorDetail(ins.error);
-        failed += 1;
-        errorCodes.push(`${entry.errorCode}:${ins.error.code ?? "unknown"}`);
-        continue;
-      }
-      entry.snapshotId = (ins.data as { id: string } | null)?.id ?? null;
-      success += 1;
-      // History discovery: track the earliest period that actually yielded data.
-      if (entry.status !== "empty_source" && entry.status !== "parse_failed") {
-        const end = entry.periodEnd;
-        if (end && (!discoveredHistoryEarliest || end < discoveredHistoryEarliest)) {
-          discoveredHistoryEarliest = end;
-        }
-      }
-    } catch (err) {
-      entry.status = "persistence_failed";
-      entry.errorCode = "snapshot_insert_failed";
-      entry.errorDetail = err instanceof Error ? err.message.slice(0, 200) : "unknown";
+    // Preserve (byte-immutable) + Persist. Prior valid snapshots are never
+    // touched — every sync appends a new immutable version.
+    const persisted = await persistSnapshot(req, apiResult.payload, entry, parsed, validation);
+    if (!persisted) {
       failed += 1;
-      errorCodes.push(entry.errorCode);
+      errorCodes.push(entry.errorCode ?? "snapshot_insert_failed");
+      return entry;
+    }
+    if (entry.status === "parse_failed") {
+      failed += 1;
+      errorCodes.push("parse_failed");
+      return entry;
+    }
+    // empty_source is a valid QuickBooks answer, not a failure.
+    success += 1;
+    if (entry.status !== "empty_source" && entry.periodEnd) {
+      if (!discoveredHistoryEarliest || entry.periodEnd < discoveredHistoryEarliest) {
+        discoveredHistoryEarliest = entry.periodEnd;
+      }
+    }
+    return entry;
+  };
+
+  for (const req of requests) {
+    const entry = await runRequest(req, null);
+    // Deterministic narrower-period fallback: a faulted long window is retried
+    // once over a shorter, explicitly-labelled window. Results are never merged.
+    if (entry.status === "source_fault") {
+      const narrowed = narrowerPeriodRequest(req);
+      if (narrowed) await runRequest(narrowed, req);
     }
   }
+
 
   // 6. Finalize the run with its full per-request manifest.
   const runStatus = failed === 0 ? "completed" : success > 0 ? "partial" : "failed";
