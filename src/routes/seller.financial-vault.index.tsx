@@ -69,6 +69,8 @@ const SNAPSHOT_STATUS_LABELS: Record<string, string> = {
   reconciled: "Reconciled",
   parsed: "Parsed",
   retrieved: "Retrieved",
+  source_fault: "QuickBooks fault",
+
   empty_source: "Empty source",
   parse_failed: "Parse failed",
   validation_failed: "Check failed",
