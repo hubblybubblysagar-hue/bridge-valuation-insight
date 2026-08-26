@@ -161,13 +161,16 @@ async function intuitTokenEndpoint(environment: string): Promise<string> {
   return "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 }
 
-async function refreshTokens(bundle: StoredTokenBundle): Promise<StoredTokenBundle> {
+async function refreshTokens(
+  bundle: StoredTokenBundle,
+  environment: string,
+): Promise<StoredTokenBundle> {
   const clientId = process.env["INTUIT_CLIENT_ID"];
   const clientSecret = process.env["INTUIT_CLIENT_SECRET"];
   if (!clientId || !clientSecret) {
     throw new SyncError("intuit_not_configured", "Intuit app credentials are missing");
   }
-  const endpoint = await intuitTokenEndpoint(bundle.environment);
+  const endpoint = await intuitTokenEndpoint(environment);
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -177,7 +180,7 @@ async function refreshTokens(bundle: StoredTokenBundle): Promise<StoredTokenBund
     },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: bundle.refreshToken,
+      refresh_token: bundle.refresh_token,
     }),
   });
   if (!res.ok) {
@@ -191,10 +194,11 @@ async function refreshTokens(bundle: StoredTokenBundle): Promise<StoredTokenBund
   };
   return {
     ...bundle,
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    accessTokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-    refreshTokenExpiresAt: new Date(
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    token_type: "bearer",
+    access_token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+    refresh_token_expires_at: new Date(
       Date.now() + tokens.x_refresh_token_expires_in * 1000,
     ).toISOString(),
   };
@@ -205,50 +209,110 @@ async function refreshTokens(bundle: StoredTokenBundle): Promise<StoredTokenBund
 interface QbApiResult {
   payload: unknown;
   httpStatus: number;
+  attempts: number;
+}
+
+/** Transient conditions worth a bounded retry. Auth/permission errors are not. */
+function isTransientStatus(status: number): boolean {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+const RETRY_BACKOFF_MS = [400, 1200];
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms));
 }
 
 /**
- * GET a QuickBooks path. `requestPath` is the planner-built path including
- * any query string (e.g. `/reports/ProfitAndLoss?start_date=...`).
+ * GET a QuickBooks path with bounded retries. `requestPath` is the
+ * planner-built path including any query string. Retries apply to network
+ * errors, 429/5xx, and Intuit SystemFaults returned with a 200 body — those
+ * are intermittent sandbox failures, not data problems.
  */
 async function quickbooksGet(
-  bundle: StoredTokenBundle,
+  ctx: QbContext,
   requestPath: string,
-  accessToken: string,
+  maxAttempts = 3,
 ): Promise<QbApiResult> {
-  const base = `${qboBaseUrl(bundle.environment)}/v3/company/${bundle.realmId}`;
+  if (!ctx.realmId) {
+    throw new SyncError("missing_realm", "Connection is missing its QuickBooks realm id");
+  }
+  if (!ctx.accessToken) {
+    throw new SyncError("missing_access_token", "Stored QuickBooks token is unreadable");
+  }
+  const base = `${qboBaseUrl(ctx.environment)}/v3/company/${ctx.realmId}`;
   const url = new URL(`${base}${requestPath.startsWith("/") ? requestPath : `/${requestPath}`}`);
   url.searchParams.set("minorversion", process.env["QUICKBOOKS_MINOR_VERSION"] ?? "75");
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
-  try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      let intuitCode: string | null = null;
+  let lastError: SyncError = new SyncError("network_error", "QuickBooks request failed");
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${ctx.accessToken}`, Accept: "application/json" },
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let payload: unknown = null;
       try {
-        const fault = (await res.json()) as {
-          Fault?: { Error?: Array<{ code?: string }> };
-        };
-        intuitCode = fault.Fault?.Error?.[0]?.code ?? null;
+        payload = text ? JSON.parse(text) : null;
       } catch {
-        /* non-JSON fault body */
+        payload = null;
       }
-      throw new SyncError(
-        "quickbooks_request_failed",
-        `QuickBooks API returned ${res.status}`,
-        res.status,
-        intuitCode,
-      );
+
+      if (!res.ok) {
+        const fault = sourceFault(payload);
+        lastError = new SyncError(
+          "quickbooks_request_failed",
+          `QuickBooks API returned ${res.status}`,
+          res.status,
+          fault?.code ?? null,
+        );
+        if (isTransientStatus(res.status) && attempt < maxAttempts) {
+          await sleep(RETRY_BACKOFF_MS[attempt - 1] ?? 1200);
+          continue;
+        }
+        throw lastError;
+      }
+
+      // A 200 can still carry a Fault (sandbox SystemFault/NullPointerException).
+      const fault = sourceFault(payload);
+      if (fault) {
+        lastError = new SyncError(
+          "quickbooks_source_fault",
+          fault.detail ?? "QuickBooks returned a fault for this report",
+          res.status,
+          fault.code,
+        );
+        if (attempt < maxAttempts) {
+          await sleep(RETRY_BACKOFF_MS[attempt - 1] ?? 1200);
+          continue;
+        }
+        throw lastError;
+      }
+
+      return { payload, httpStatus: res.status, attempts: attempt };
+    } catch (err) {
+      if (err instanceof SyncError) {
+        lastError = err;
+        if (attempt >= maxAttempts) throw err;
+        if (err.code === "quickbooks_source_fault" || isTransientStatus(err.httpStatus ?? 0)) {
+          continue;
+        }
+        throw err;
+      }
+      lastError = new SyncError("network_error", "QuickBooks request failed");
+      if (attempt >= maxAttempts) throw lastError;
+      await sleep(RETRY_BACKOFF_MS[attempt - 1] ?? 1200);
+    } finally {
+      clearTimeout(timer);
     }
-    return { payload: await res.json(), httpStatus: res.status };
-  } finally {
-    clearTimeout(timer);
   }
+  throw lastError;
 }
+
 
 // ---------- Helpers ----------
 
