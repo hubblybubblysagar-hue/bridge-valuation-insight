@@ -18,6 +18,8 @@ import { createClient } from "@supabase/supabase-js";
 import {
   buildReportRequests,
   companyInfoRequest,
+  narrowerPeriodRequest,
+  sourceKindFor,
   type SnapshotLifecycle,
   type SyncReportRequest,
   type SyncResultItem,
@@ -25,11 +27,14 @@ import {
 } from "./qb-report-plan";
 import {
   PARSER_VERSION,
+  financialRowCount,
   parseReport,
   reportHeaderMeta,
   reportRowCount,
+  sourceFault,
 } from "./qb-report";
 import { validateReport, type ValidationResult } from "./qb-validate";
+
 
 // Intuit's public discovery document for its OAuth endpoints.
 const INTUIT_DISCOVERY_URL =
