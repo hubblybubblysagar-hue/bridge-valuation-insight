@@ -41,11 +41,17 @@ function ReportDetailPage() {
     };
   }, [snapshotId]);
 
-  const parsed = useMemo(() => (snap ? parseReport(snap.rawPayload) : null), [snap]);
+  const fault = useMemo(() => (snap ? sourceFault(snap.rawPayload) : null), [snap]);
+  const kind = snap ? sourceKindFor(snap.reportType) : "financial_report";
+  const parsed = useMemo(
+    () => (snap && !fault && kind !== "company_metadata" ? parseReport(snap.rawPayload) : null),
+    [snap, fault, kind],
+  );
   const validation: ValidationResult | null = useMemo(
     () => (snap && parsed ? validateReport(snap.reportType, parsed) : null),
     [snap, parsed],
   );
+
 
   const downloadCsv = () => {
     if (!parsed || !snap) return;
