@@ -120,12 +120,13 @@ async function vaultRead(
   const { data, error } = await supabase.rpc("service_qb_get_token_secret", {
     _secret_id: secretId,
   });
-  if (!error && data) return data as StoredTokenBundle;
+  if (!error && data) return normalizeBundle(data);
   const admin = await adminClient();
   if (!admin) return null;
   const res = await admin.rpc("service_qb_get_token_secret", { _secret_id: secretId });
   if (res.error || !res.data) return null;
-  return res.data as StoredTokenBundle;
+  return normalizeBundle(res.data);
+
 }
 
 async function vaultWrite(
