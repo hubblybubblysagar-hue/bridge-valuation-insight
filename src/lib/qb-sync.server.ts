@@ -781,9 +781,16 @@ export async function reparseStoredSnapshots(
       continue;
     }
     try {
+      const kind = sourceKindFor(snap.report_type);
       const parsed = parseReport(snap.raw_payload);
       const validation = parsed ? validateReport(snap.report_type, parsed) : null;
-      const status = deriveLifecycle(parsed, validation);
+      // Metadata snapshots are never "parse failed" — they are not reports.
+      const status: SnapshotLifecycle =
+        kind === "company_metadata"
+          ? sourceFault(snap.raw_payload)
+            ? "source_fault"
+            : "retrieved"
+          : deriveLifecycle(parsed, validation, snap.raw_payload);
       const meta = reportHeaderMeta(snap.raw_payload);
       const upd = await writer
         .from("quickbooks_report_snapshots")
@@ -791,9 +798,11 @@ export async function reparseStoredSnapshots(
           normalized_payload: {
             parser_version: PARSER_VERSION,
             parsed_at: new Date().toISOString(),
+            kind,
             meta,
             columns: parsed?.columns ?? [],
             rows: parsed?.rows ?? [],
+            financial_row_count: financialRowCount(parsed),
             validation,
           },
           row_count: reportRowCount(snap.raw_payload),
@@ -801,6 +810,7 @@ export async function reparseStoredSnapshots(
           status,
         } as never)
         .eq("id", snap.id);
+
       if (upd.error) failed += 1;
       else reparsed += 1;
     } catch {
