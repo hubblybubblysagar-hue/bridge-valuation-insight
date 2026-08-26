@@ -56,14 +56,51 @@ export class SyncError extends Error {
   }
 }
 
+/**
+ * Token bundles are written to the vault by the OAuth edge functions in
+ * snake_case (`access_token`, `refresh_token`, `access_token_expires_at`) and
+ * carry no realm/environment — those live on the connection row. Reading them
+ * as camelCase yielded `undefined` tokens and `/companyinfo/undefined` paths
+ * (the Aug 26 mass-401). Both casings are accepted; snake_case is written.
+ */
 interface StoredTokenBundle {
+  access_token: string;
+  refresh_token: string;
+  access_token_expires_at: string;
+  refresh_token_expires_at: string;
+  [key: string]: unknown;
+}
+
+/** Everything an API call needs: realm + environment come from the connection. */
+interface QbContext {
   realmId: string;
   environment: string;
   accessToken: string;
-  refreshToken: string;
-  accessTokenExpiresAt: string;
-  refreshTokenExpiresAt: string;
 }
+
+function pick(raw: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const v = raw[k];
+    if (typeof v === "string" && v !== "") return v;
+  }
+  return "";
+}
+
+function normalizeBundle(raw: unknown): StoredTokenBundle | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const access = pick(r, "access_token", "accessToken");
+  const refresh = pick(r, "refresh_token", "refreshToken");
+  if (!access || !refresh) return null;
+  return {
+    ...r,
+    access_token: access,
+    refresh_token: refresh,
+    access_token_expires_at: pick(r, "access_token_expires_at", "accessTokenExpiresAt"),
+    refresh_token_expires_at: pick(r, "refresh_token_expires_at", "refreshTokenExpiresAt"),
+  };
+}
+
 
 // ---------- Vault access (service-role bridge, then admin fallback) ----------
 
