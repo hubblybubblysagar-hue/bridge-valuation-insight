@@ -338,15 +338,18 @@ function persistErrorDetail(err: { code?: string; message?: string }): string {
 function deriveLifecycle(
   parsed: ReturnType<typeof parseReport>,
   validation: ValidationResult | null,
+  payload?: unknown,
 ): SnapshotLifecycle {
+  // A source fault is an API failure, never a parse failure.
+  if (payload !== undefined && sourceFault(payload)) return "source_fault";
   if (!parsed) return "parse_failed";
-  const dataRows = parsed.rows.filter((r) => r.rowType === "data").length;
-  if (parsed.noReportData || dataRows === 0) return "empty_source";
+  if (parsed.noReportData || financialRowCount(parsed) === 0) return "empty_source";
   if (!validation || validation.checks.length === 0) return "parsed"; // no validator for this report type
   if (validation.overall === "fail") return "validation_failed";
   if (validation.overall === "pass") return "ready";
   return "validated"; // checks ran but were not comparable
 }
+
 
 // ---------- Public API ----------
 
