@@ -69,6 +69,8 @@ const SNAPSHOT_STATUS_LABELS: Record<string, string> = {
   reconciled: "Reconciled",
   parsed: "Parsed",
   retrieved: "Retrieved",
+  source_fault: "QuickBooks fault",
+
   empty_source: "Empty source",
   parse_failed: "Parse failed",
   validation_failed: "Check failed",
@@ -347,41 +349,111 @@ function FinancialVaultPage() {
           {data && data.runs.length > 0 && (
             <SectionCard
               title="Sync history"
-              description="Every retrieval is auditable — status, counts, and safe error references."
+              description="Every retrieval is auditable — expand a run to see each request, its outcome, and safe error references."
               testId="vault-runs"
             >
               <ul className="divide-y divide-border">
                 {data.runs.map((run) => (
-                  <li
-                    key={run.id}
-                    data-testid="vault-run-row"
-                    className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-                          run.status === "completed"
-                            ? "bg-success/10 text-success"
-                            : run.status === "running"
-                              ? "bg-muted text-muted-foreground"
-                              : "bg-destructive/10 text-destructive"
-                        }`}
-                      >
-                        {run.status}
-                      </span>
-                      <span className="text-foreground">
-                        {run.successfulCount} synced
-                        {run.failedCount > 0 ? ` · ${run.failedCount} failed` : ""}
-                      </span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {fmtDateTime(run.completedAt ?? run.startedAt)}
-                    </span>
+                  <li key={run.id} data-testid="vault-run-row" className="py-1">
+                    <details className="group">
+                      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                        <div className="flex items-center gap-3">
+                          <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+                              run.status === "completed"
+                                ? "bg-success/10 text-success"
+                                : run.status === "running"
+                                  ? "bg-muted text-muted-foreground"
+                                  : run.status === "partial"
+                                    ? "bg-gold/15 text-gold"
+                                    : "bg-destructive/10 text-destructive"
+                            }`}
+                          >
+                            {run.status}
+                          </span>
+                          <span className="text-foreground">
+                            {run.successfulCount} synced
+                            {run.failedCount > 0 ? ` · ${run.failedCount} failed` : ""}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {fmtDateTime(run.completedAt ?? run.startedAt)}
+                        </span>
+                      </summary>
+                      {run.results.length === 0 ? (
+                        <p className="px-7 pb-3 text-xs text-muted-foreground">
+                          No per-request manifest was recorded for this run.
+                        </p>
+                      ) : (
+                        <ul className="space-y-1.5 px-7 pb-3" data-testid="vault-run-manifest">
+                          {run.results.map((item, i) => (
+                            <li
+                              key={i}
+                              className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs"
+                            >
+                              <span className="font-medium text-foreground">
+                                {item.label ??
+                                  SYNC_REPORT_TYPE_LABELS[item.reportType as SyncReportType] ??
+                                  item.reportType}
+                              </span>
+                              {item.kind === "company_metadata" && (
+                                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                                  metadata
+                                </span>
+                              )}
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  item.status === "ready" ||
+                                  item.status === "validated" ||
+                                  item.status === "retrieved"
+                                    ? "bg-success/10 text-success"
+                                    : item.status === "empty_source"
+                                      ? "bg-muted text-muted-foreground"
+                                      : "bg-destructive/10 text-destructive"
+                                }`}
+                              >
+                                {snapshotStatusLabel(item.status)}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {item.financialRowCount != null && item.financialRowCount > 0
+                                  ? `${item.financialRowCount} financial rows`
+                                  : item.rowCount
+                                    ? `${item.rowCount} rows`
+                                    : "—"}
+                              </span>
+                              {item.httpStatus != null && (
+                                <span className="text-muted-foreground">HTTP {item.httpStatus}</span>
+                              )}
+                              {item.intuitErrorCode && (
+                                <span className="text-muted-foreground">
+                                  Intuit {item.intuitErrorCode}
+                                </span>
+                              )}
+                              {item.errorCode && (
+                                <span className="font-mono text-[10px] text-destructive">
+                                  {item.errorCode}
+                                </span>
+                              )}
+                              {item.attempts != null && item.attempts > 1 && (
+                                <span className="text-muted-foreground">
+                                  {item.attempts} attempts
+                                </span>
+                              )}
+                              {item.fallbackOfPeriod && (
+                                <span className="text-muted-foreground">narrowed retry</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </details>
                   </li>
                 ))}
               </ul>
             </SectionCard>
           )}
+
         </div>
       )}
     </SellerLayout>

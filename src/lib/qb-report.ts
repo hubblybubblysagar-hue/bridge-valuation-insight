@@ -422,3 +422,41 @@ export function reportToCsv(parsed: ParsedReport): string {
   }
   return lines.join("\n");
 }
+
+// ============ Source classification (pre-parser gate) ============
+
+/**
+ * Intuit fault detected in a 200/4xx/5xx body. A payload carrying a top-level
+ * `Fault` is an API failure, NOT a financial report — it must never reach the
+ * report parser.
+ */
+export function sourceFault(payload: unknown): { type: string | null; code: string | null; detail: string | null } | null {
+  if (!payload || typeof payload !== "object") return null;
+  const f = (payload as Record<string, unknown>)["Fault"] as
+    | { type?: string; Error?: Array<{ code?: string; Detail?: string; Message?: string }> }
+    | undefined;
+  if (!f) return null;
+  const e = f.Error?.[0] ?? {};
+  return {
+    type: f.type ?? null,
+    code: e.code != null ? String(e.code) : null,
+    detail: (e.Message ?? e.Detail ?? null)?.slice(0, 200) ?? null,
+  };
+}
+
+/** True when QuickBooks explicitly reports no activity for the period. */
+export function isNoReportData(payload: unknown): boolean {
+  const parsed = parseReport(payload);
+  return parsed ? parsed.noReportData : false;
+}
+
+/**
+ * Count of rows that actually carry financial values. Structural Header /
+ * Summary shells with no numeric value are NOT financial rows.
+ */
+export function financialRowCount(parsed: ParsedReport | null): number {
+  if (!parsed) return 0;
+  return parsed.rows.filter(
+    (r) => r.rowType !== "section" && r.values.some((v) => v.valueNumeric !== null),
+  ).length;
+}

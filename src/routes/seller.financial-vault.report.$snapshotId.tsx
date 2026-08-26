@@ -5,10 +5,20 @@ import { SellerLayout } from "@/components/SellerLayout";
 import { SourceChip } from "@/components/workspace";
 import { Button } from "@/components/ui/button";
 import { loadSnapshotById, type SnapshotDetail } from "@/lib/quickbooks";
-import { parseReport, reportToCsv, type ParsedReport, type ParsedRow } from "@/lib/qb-report";
+import {
+  parseReport,
+  reportToCsv,
+  sourceFault,
+  type ParsedReport,
+  type ParsedRow,
+} from "@/lib/qb-report";
 import { validateReport, type ValidationResult } from "@/lib/qb-validate";
 import { fmtDateOnly, fmtTimestamp } from "@/lib/date-only";
-import { SYNC_REPORT_TYPE_LABELS, type SyncReportType } from "@/lib/qb-report-plan";
+import {
+  SYNC_REPORT_TYPE_LABELS,
+  sourceKindFor,
+  type SyncReportType,
+} from "@/lib/qb-report-plan";
 
 export const Route = createFileRoute("/seller/financial-vault/report/$snapshotId")({
   head: () => ({ meta: [{ title: "Report detail — ExitBridge" }] }),
@@ -41,11 +51,17 @@ function ReportDetailPage() {
     };
   }, [snapshotId]);
 
-  const parsed = useMemo(() => (snap ? parseReport(snap.rawPayload) : null), [snap]);
+  const fault = useMemo(() => (snap ? sourceFault(snap.rawPayload) : null), [snap]);
+  const kind = snap ? sourceKindFor(snap.reportType) : "financial_report";
+  const parsed = useMemo(
+    () => (snap && !fault && kind !== "company_metadata" ? parseReport(snap.rawPayload) : null),
+    [snap, fault, kind],
+  );
   const validation: ValidationResult | null = useMemo(
     () => (snap && parsed ? validateReport(snap.reportType, parsed) : null),
     [snap, parsed],
   );
+
 
   const downloadCsv = () => {
     if (!parsed || !snap) return;
@@ -166,7 +182,32 @@ function ReportDetailPage() {
 
           {/* Report body */}
           <div className="rounded-2xl border border-border bg-card p-6 shadow-elegant md:p-8">
-            {parsed ? (
+            {fault ? (
+              <div data-testid="report-source-fault" className="space-y-2">
+                <h2 className="font-display text-xl text-foreground">
+                  QuickBooks could not produce this report
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  This is a source API failure, not a problem with your data and not a parsing
+                  failure. ExitBridge retried automatically and preserved the exact response
+                  below. Your previously synced reports are unaffected.
+                </p>
+                <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                  <Meta label="Fault type">{fault.type ?? "—"}</Meta>
+                  <Meta label="Intuit code">{fault.code ?? "—"}</Meta>
+                  <Meta label="Report period">
+                    {snap.periodEnd ? fmtDate(snap.periodEnd) : "Current"}
+                  </Meta>
+                </dl>
+              </div>
+            ) : kind === "company_metadata" ? (
+              <div className="space-y-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Verified company metadata — not a financial report
+                </p>
+                <KeyValuePayload payload={snap.rawPayload} />
+              </div>
+            ) : parsed ? (
               <ReportTable parsed={parsed} />
             ) : (
               <KeyValuePayload payload={snap.rawPayload} />

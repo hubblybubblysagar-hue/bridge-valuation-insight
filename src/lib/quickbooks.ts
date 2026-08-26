@@ -4,7 +4,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { syncQuickBooksFinancials } from "./qb-sync.functions";
 import { normalizePnL, parseReport } from "./qb-report";
-import type { SyncRunResult } from "./qb-report-plan";
+import type { SyncResultItem, SyncRunResult } from "./qb-report-plan";
 
 export interface QbConnectionSummary {
   id: string;
@@ -168,6 +168,8 @@ export interface VaultSyncRunMeta {
   successfulCount: number;
   failedCount: number;
   errorCodes: string[];
+  /** Per-request manifest (sanitized: no tokens, realm masked). */
+  results: SyncResultItem[];
 }
 
 export interface VaultData {
@@ -175,6 +177,19 @@ export interface VaultData {
   connection: QbConnectionSummary | null;
   snapshots: VaultSnapshotMeta[];
   runs: VaultSyncRunMeta[];
+}
+
+/** Strip anything sensitive from a stored manifest before it reaches the UI. */
+function sanitizeManifest(raw: unknown): SyncResultItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const r = { ...(item as SyncResultItem) };
+    if (r.path) {
+      // The CompanyInfo path embeds the realm id — mask all but the last 4.
+      r.path = r.path.replace(/\/companyinfo\/(\w+)/i, (_m, id: string) => `/companyinfo/****${id.slice(-4)}`);
+    }
+    return r;
+  });
 }
 
 async function currentSellerBusinessId(): Promise<string | null> {
@@ -208,7 +223,9 @@ export async function loadVaultData(): Promise<VaultData> {
       .limit(400),
     supabase
       .from("quickbooks_sync_runs")
-      .select("id, status, started_at, completed_at, successful_count, failed_count, error_codes")
+      .select(
+        "id, status, started_at, completed_at, successful_count, failed_count, error_codes, results",
+      )
       .eq("business_id", businessId)
       .order("started_at", { ascending: false })
       .limit(20),
@@ -238,6 +255,7 @@ export async function loadVaultData(): Promise<VaultData> {
       successfulCount: r.successful_count,
       failedCount: r.failed_count,
       errorCodes: r.error_codes ?? [],
+      results: sanitizeManifest(r.results),
     })),
   };
 }

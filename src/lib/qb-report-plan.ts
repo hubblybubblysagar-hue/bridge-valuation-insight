@@ -50,12 +50,27 @@ export type SnapshotLifecycle =
   | "reconciled"
   | "ready"
   | "api_failed"
+  | "source_fault"
   | "persistence_failed"
   | "empty_source"
   | "parse_failed"
   | "validation_failed"
   | "reconciliation_warning"
   | "synced"; // legacy value from pre-v2 syncs
+
+/**
+ * What a request retrieves. Company metadata is verified identity data — it is
+ * never parsed as a financial report and never counted as a failed report.
+ */
+export type SourceKind = "company_metadata" | "accounting_entity" | "financial_report";
+
+export function sourceKindFor(reportType: string): SourceKind {
+  if (reportType === "company_info") return "company_metadata";
+  if (reportType === "account_list") return "accounting_entity";
+  return "financial_report";
+}
+
+export type StageOutcome = "ok" | "failed" | "skipped" | "empty" | "not_applicable";
 
 export interface SyncResultItem {
   reportType: string;
@@ -65,15 +80,57 @@ export interface SyncResultItem {
   periodStart: string | null;
   periodEnd: string | null;
   status: SnapshotLifecycle;
+  /** company_metadata / accounting_entity / financial_report. */
+  kind?: SourceKind;
+  /** Per-stage outcomes so a source failure is never reported as a parse failure. */
+  sourceOutcome?: StageOutcome;
+  parseOutcome?: StageOutcome;
+  validationOutcome?: StageOutcome;
+  persistenceOutcome?: StageOutcome;
   httpStatus?: number | null;
   intuitErrorCode?: string | null;
+  intuitFaultType?: string | null;
   errorCode?: string;
   /** Sanitized persistence error detail (PostgREST code + message class). */
   errorDetail?: string | null;
+  /** Number of source attempts made (retries for transient Intuit faults). */
+  attempts?: number;
+  /** Set when this request is a deterministic narrower-period fallback. */
+  fallbackOfPeriod?: { start: string | null; end: string | null } | null;
   snapshotId?: string | null;
+  /** All parsed rows including structural section/summary shells. */
   rowCount?: number | null;
+  /** Rows that actually carry financial values. */
+  financialRowCount?: number | null;
   checksum?: string;
 }
+
+/**
+ * Deterministic narrower-period retry for a period-bounded report whose source
+ * request faulted. Halves the window from the END (never invents data, never
+ * merges results) so a fault on a long window can still yield a real, clearly
+ * labelled shorter-period snapshot.
+ */
+export function narrowerPeriodRequest(req: SyncReportRequest): SyncReportRequest | null {
+  if (!req.periodStart || !req.periodEnd) return null;
+  const startMs = Date.parse(req.periodStart);
+  const endMs = Date.parse(req.periodEnd);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  const days = Math.round((endMs - startMs) / 86_400_000);
+  if (days < 60) return null; // already short — nothing meaningful to narrow to
+  const newStartMs = endMs - Math.floor(days / 2) * 86_400_000;
+  const newStart = isoDate(new Date(newStartMs));
+  return {
+    ...req,
+    label: `${req.label} (narrowed: ${newStart} – ${req.periodEnd})`,
+    path: req.path.replace(
+      /start_date=[^&]*/,
+      `start_date=${encodeURIComponent(newStart)}`,
+    ),
+    periodStart: newStart,
+  };
+}
+
 
 export type SyncRunStatus = "completed" | "partial" | "failed";
 
