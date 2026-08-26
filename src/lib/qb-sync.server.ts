@@ -387,19 +387,21 @@ export async function fetchCompanyInfoForConnection(
   connection: QbConnectionRow,
 ): Promise<{ companyName: string | null; legalName: string | null; country: string | null }> {
   if (!connection.token_secret_id) throw new SyncError("no_token", "Connection has no stored token");
-  const bundle = await vaultRead(supabase, connection.token_secret_id);
+  let bundle = await vaultRead(supabase, connection.token_secret_id);
   if (!bundle) throw new SyncError("vault_unavailable", "Stored QuickBooks token is not accessible");
 
-  let token = bundle.accessToken;
-  if (new Date(bundle.accessTokenExpiresAt).getTime() - Date.now() < 120_000) {
-    const refreshed = await refreshTokens(bundle);
-    await vaultWrite(supabase, connection.token_secret_id, refreshed);
-    token = refreshed.accessToken;
-    bundle.realmId = refreshed.realmId;
+  if (Date.parse(bundle.access_token_expires_at) - Date.now() < 120_000) {
+    bundle = await refreshTokens(bundle, connection.environment);
+    await vaultWrite(supabase, connection.token_secret_id, bundle);
   }
 
-  const req = companyInfoRequest(bundle.realmId);
-  const { payload } = await quickbooksGet(bundle, req.path, token);
+  const ctx: QbContext = {
+    realmId: connection.realm_id,
+    environment: connection.environment,
+    accessToken: bundle.access_token,
+  };
+  const req = companyInfoRequest(connection.realm_id);
+  const { payload } = await quickbooksGet(ctx, req.path);
   const info = (payload as { CompanyInfo?: Record<string, string> }).CompanyInfo ?? {};
   return {
     companyName: info.CompanyName ?? null,
@@ -407,6 +409,8 @@ export async function fetchCompanyInfoForConnection(
     country: info.Country ?? null,
   };
 }
+
+
 
 /**
  * Run the full financial sync for one connection:
