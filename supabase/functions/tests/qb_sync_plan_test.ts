@@ -68,7 +68,7 @@ Deno.test("fiscalYearStartMonthFromCompanyInfo: parses stored snapshot, defaults
 
 Deno.test("buildReportRequests: read-only requests covering the standard set", () => {
   const reqs = buildReportRequests(new Date(Date.UTC(2026, 5, 15)), 1);
-  assertEquals(reqs.length, 15);
+  assertEquals(reqs.length, 18);
   // Every financial report type except company_info is covered by the
   // planner; company_info is built separately (needs the realm ID).
   for (const t of SYNC_REPORT_TYPES) {
