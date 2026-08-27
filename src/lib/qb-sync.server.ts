@@ -477,6 +477,10 @@ export async function syncConnectionFinancials(
 
   let success = 0;
   let failed = 0;
+  // Sources this QuickBooks company does not expose: recorded truthfully as
+  // coverage gaps, never as failures.
+  let unsupported = 0;
+
   const errorCodes: string[] = [];
   let discoveredHistoryEarliest: string | null = null;
   let syncRunId: string | null = null;
