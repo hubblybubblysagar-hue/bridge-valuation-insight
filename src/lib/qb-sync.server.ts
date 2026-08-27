@@ -798,6 +798,8 @@ export async function syncConnectionFinancials(
 
   // 6. Finalize the run with its full per-request manifest.
   const runStatus = failed === 0 ? "completed" : success > 0 ? "partial" : "failed";
+  void unsupported;
+
   await writer
     .from("quickbooks_sync_runs")
     .update({
