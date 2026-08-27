@@ -270,6 +270,10 @@ async function quickbooksGet(
   const base = `${qboBaseUrl(ctx.environment)}/v3/company/${ctx.realmId}`;
   const url = new URL(`${base}${requestPath.startsWith("/") ? requestPath : `/${requestPath}`}`);
   url.searchParams.set("minorversion", process.env["QUICKBOOKS_MINOR_VERSION"] ?? "75");
+  if (reportsApiGeneration() === "modernized" && requestPath.includes("/reports/")) {
+    url.searchParams.set("testing_migration", "true");
+  }
+
 
   let lastError: SyncError = new SyncError("network_error", "QuickBooks request failed");
 
