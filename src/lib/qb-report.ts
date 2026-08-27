@@ -272,9 +272,16 @@ export function parseReport(payload: unknown): ParsedReport | null {
           label,
           values: valueEntries(r.ColData, columns),
         });
+        // A data row may still nest children in the modernized service.
+        walk(childRows(r), depth + 1, ancestors);
+        continue;
       }
+
+      // Header-less container: never drop its children.
+      walk(childRows(r), depth, ancestors);
     }
   };
+
 
   walk(rowsOf(raw.Rows), 0, []);
 
