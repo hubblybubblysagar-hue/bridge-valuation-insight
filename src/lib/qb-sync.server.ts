@@ -557,12 +557,14 @@ export async function syncConnectionFinancials(
       return true;
     } catch (err) {
       entry.status = "persistence_failed";
+      entry.availability = "persistence_failed";
       entry.persistenceOutcome = "failed";
       entry.errorCode = "snapshot_insert_failed";
       entry.errorDetail = err instanceof Error ? err.message.slice(0, 200) : "unknown";
       return false;
     }
   };
+
 
   // 2. CompanyInfo — verified company metadata AND the fiscal-year input.
   //    It is metadata, never a financial report: it is not parsed as one and
