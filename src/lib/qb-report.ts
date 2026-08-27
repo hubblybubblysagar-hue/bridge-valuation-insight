@@ -11,23 +11,39 @@
 export const PARSER_VERSION = "2.0.0";
 
 // ============ Raw QBO shapes (loose; both casings tolerated) ============
+//
+// Forward-compatibility with Intuit's modernized reporting service (effective
+// 2026-08-31): unknown fields are ignored rather than rejected, `Rows` and
+// `Columns` are accepted either as the classic `{ Row: [...] }` / `{ Column:
+// [...] }` wrappers or as bare arrays, `null` and `""` are treated
+// identically, and no accounting logic keys off a row's array position.
 
 interface RawColDataEntry {
-  value?: string;
-  id?: string;
+  value?: string | null;
+  id?: string | number | null;
   name?: string;
   href?: string;
+  [key: string]: unknown;
 }
 
 interface RawRow {
   Header?: { ColData?: RawColDataEntry[] };
   header?: { ColData?: RawColDataEntry[] };
   ColData?: RawColDataEntry[];
-  Rows?: { Row?: RawRow[] };
+  Rows?: { Row?: RawRow[] } | RawRow[];
+  rows?: { Row?: RawRow[] } | RawRow[];
   Summary?: { ColData?: RawColDataEntry[] };
   summary?: { ColData?: RawColDataEntry[] };
   type?: string;
   group?: string;
+  [key: string]: unknown;
+}
+
+interface RawColumn {
+  ColTitle?: string | null;
+  ColType?: string | null;
+  MetaData?: Array<{ Name?: string; Value?: string }>;
+  [key: string]: unknown;
 }
 
 interface RawReportPayload {
@@ -39,16 +55,33 @@ interface RawReportPayload {
     EndPeriod?: string;
     Time?: string;
     Option?: Array<{ Name?: string; Value?: string }>;
+    [key: string]: unknown;
   };
-  Columns?: {
-    Column?: Array<{
-      ColTitle?: string;
-      ColType?: string;
-      MetaData?: Array<{ Name?: string; Value?: string }>;
-    }>;
-  };
-  Rows?: { Row?: RawRow[] };
+  Columns?: { Column?: RawColumn[] } | RawColumn[];
+  Rows?: { Row?: RawRow[] } | RawRow[];
+  [key: string]: unknown;
 }
+
+/** Accept `{ Row: [...] }`, a bare array, or nothing. */
+function rowsOf(v: { Row?: RawRow[] } | RawRow[] | undefined): RawRow[] {
+  if (Array.isArray(v)) return v;
+  if (v && Array.isArray(v.Row)) return v.Row;
+  return [];
+}
+
+/** Accept `{ Column: [...] }`, a bare array, or nothing. */
+function columnsOf(v: { Column?: RawColumn[] } | RawColumn[] | undefined): RawColumn[] {
+  if (Array.isArray(v)) return v;
+  if (v && Array.isArray(v.Column)) return v.Column;
+  return [];
+}
+
+/** Child rows of a row node, under either casing and either shape. */
+function childRows(r: RawRow): RawRow[] {
+  const c = rowsOf(r.Rows);
+  return c.length > 0 ? c : rowsOf(r.rows);
+}
+
 
 // ============ Parsed model ============
 
