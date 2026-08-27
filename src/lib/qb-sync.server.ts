@@ -597,6 +597,8 @@ export async function syncConnectionFinancials(
     fiscalYearStartMonth = Number(companyInfo["FiscalYearStartMonth"] ?? 1) || 1;
     ciEntry.rowCount = Object.keys(companyInfo).length;
     ciEntry.financialRowCount = null;
+    ciEntry.availability = "ready";
+
   } catch (err) {
     const se = err instanceof SyncError ? err : null;
     ciEntry.status = se?.code === "quickbooks_source_fault" ? "source_fault" : "api_failed";
