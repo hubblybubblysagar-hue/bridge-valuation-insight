@@ -503,3 +503,78 @@ export function financialRowCount(parsed: ParsedReport | null): number {
     (r) => r.rowType !== "section" && r.values.some((v) => v.valueNumeric !== null),
   ).length;
 }
+
+/**
+ * Structural nodes are section headers and summary shells — they organize a
+ * report but are not financial evidence. Counted separately from
+ * `financialRowCount` so the Financial Vault can state evidence density
+ * honestly.
+ */
+export function structuralNodeCount(parsed: ParsedReport | null): number {
+  if (!parsed) return 0;
+  return parsed.rows.filter(
+    (r) => r.rowType === "section" || r.values.every((v) => v.valueNumeric === null),
+  ).length;
+}
+
+// ============ Entity query parsing (generic /query endpoint) ============
+
+export interface ParsedEntityQuery {
+  /** QuickBooks entity name, e.g. "Account", "Customer", "Invoice". */
+  entityName: string;
+  count: number;
+  entities: Array<Record<string, unknown>>;
+  maxResults: number | null;
+  startPosition: number | null;
+}
+
+/**
+ * Parse a QuickBooks generic-query response:
+ *   { QueryResponse: { Account: [...], startPosition: 1, maxResults: 58 } }
+ * Unknown sibling fields are ignored. An entity query is NOT a report and must
+ * never be run through `parseReport`.
+ */
+export function parseEntityQuery(payload: unknown): ParsedEntityQuery | null {
+  if (!payload || typeof payload !== "object") return null;
+  const qr = (payload as Record<string, unknown>)["QueryResponse"];
+  if (!qr || typeof qr !== "object") return null;
+  const rec = qr as Record<string, unknown>;
+  for (const [key, value] of Object.entries(rec)) {
+    if (!Array.isArray(value)) continue;
+    return {
+      entityName: key,
+      count: value.length,
+      entities: value as Array<Record<string, unknown>>,
+      maxResults: typeof rec["maxResults"] === "number" ? (rec["maxResults"] as number) : null,
+      startPosition:
+        typeof rec["startPosition"] === "number" ? (rec["startPosition"] as number) : null,
+    };
+  }
+  // A valid QueryResponse with no array member means "no records" — that is an
+  // empty source, not a parse failure.
+  return {
+    entityName: "unknown",
+    count: 0,
+    entities: [],
+    maxResults: typeof rec["maxResults"] === "number" ? (rec["maxResults"] as number) : null,
+    startPosition: null,
+  };
+}
+
+/** True when the payload is a generic-query response rather than a report. */
+export function isEntityQueryPayload(payload: unknown): boolean {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    "QueryResponse" in (payload as Record<string, unknown>)
+  );
+}
+
+/** Company metadata payload check — CompanyInfo is identity data, not a report. */
+export function isCompanyInfoPayload(payload: unknown): boolean {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    "CompanyInfo" in (payload as Record<string, unknown>)
+  );
+}
