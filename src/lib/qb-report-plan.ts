@@ -12,8 +12,11 @@ export const SYNC_REPORT_TYPES = [
   "cash_flow",
   "trial_balance",
   "aged_receivables",
+  "aged_receivable_detail",
   "aged_payables",
+  "aged_payable_detail",
   "account_list",
+  "account_list_detail",
 ] as const;
 
 export type SyncReportType = (typeof SYNC_REPORT_TYPES)[number];
@@ -25,9 +28,13 @@ export const SYNC_REPORT_TYPE_LABELS: Record<SyncReportType, string> = {
   cash_flow: "Statement of Cash Flows",
   trial_balance: "Trial Balance",
   aged_receivables: "Aged Receivables",
+  aged_receivable_detail: "Aged Receivable Detail",
   aged_payables: "Aged Payables",
+  aged_payable_detail: "Aged Payable Detail",
   account_list: "Chart of Accounts",
+  account_list_detail: "Account List report",
 };
+
 
 export interface SyncReportRequest {
   reportType: SyncReportType;
