@@ -273,6 +273,9 @@ function FinancialVaultPage() {
             </div>
           </SectionCard>
 
+          <SourceCoveragePanel latest={latest} />
+
+
           {latest.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-10 text-center">
               <p className="text-sm text-muted-foreground">
