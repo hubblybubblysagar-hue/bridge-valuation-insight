@@ -148,17 +148,30 @@ export async function syncFinancials(): Promise<SyncRunResult> {
 export interface VaultSnapshotMeta {
   id: string;
   reportType: string;
+  /** Registry key for this source (falls back to reportType on legacy rows). */
+  sourceKey: string;
+  sourceLabel: string | null;
+  sourceKind: string | null;
+  /** Truthful coverage state recorded at sync time. */
+  availability: string | null;
+  privacyTier: string | null;
   periodStart: string | null;
   periodEnd: string | null;
   accountingMethod: string | null;
   reportBasis: string | null;
   rowCount: number | null;
+  /** Section/summary shells: structure, not evidence. */
+  structuralNodeCount: number | null;
+  /** Rows that actually carry financial values. */
+  financialRowCount: number | null;
+  entityCount: number | null;
   checksum: string | null;
   status: string;
   fetchedAt: string | null;
   sourceGeneratedAt: string | null;
   syncRunId: string | null;
 }
+
 
 export interface VaultSyncRunMeta {
   id: string;
