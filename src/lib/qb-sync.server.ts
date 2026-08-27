@@ -494,6 +494,9 @@ export async function syncConnectionFinancials(
       const checksum = await sha256Hex(rawJson);
       entry.checksum = checksum;
       const meta = reportHeaderMeta(payload);
+      const entities = parserFor(req.reportType) === "entity" ? parseEntityQuery(payload) : null;
+      const availability: SourceAvailability =
+        entry.availability ?? availabilityFromLifecycle(entry.status);
       const ins = await writer
         .from("quickbooks_report_snapshots")
         .insert({
@@ -501,6 +504,12 @@ export async function syncConnectionFinancials(
           business_id: connection.business_id,
           sync_run_id: syncRunId,
           report_type: req.reportType,
+          source_key: req.reportType,
+          source_label: req.label ?? sourceTitleFor(req.reportType),
+          request_path: req.path,
+          source_kind: entry.kind,
+          availability,
+          privacy_tier: privacyTierFor(req.reportType),
           period_start: req.periodStart,
           period_end: req.periodEnd,
           accounting_method: req.accountingMethod,
@@ -509,15 +518,26 @@ export async function syncConnectionFinancials(
             parser_version: PARSER_VERSION,
             parsed_at: new Date().toISOString(),
             kind: entry.kind,
+            reports_api_generation: reportsApiGeneration(),
             meta,
             columns: parsed?.columns ?? [],
             rows: parsed?.rows ?? [],
+            entity_name: entities?.entityName ?? null,
+            entities: entities?.entities ?? [],
+            structural_node_count: entry.structuralNodeCount ?? 0,
             financial_row_count: entry.financialRowCount ?? 0,
+            entity_count: entry.entityCount ?? 0,
             validation,
           },
           report_basis: meta.report_basis ?? req.accountingMethod,
           source_generated_at: meta.source_time,
           row_count: entry.rowCount ?? 0,
+          structural_node_count: entry.structuralNodeCount ?? 0,
+          financial_row_count: entry.financialRowCount ?? 0,
+          entity_count: entry.entityCount ?? 0,
+          transaction_count: entry.transactionCount ?? null,
+          parser_version: PARSER_VERSION,
+          reports_api_generation: reportsApiGeneration(),
           checksum,
           status: entry.status,
         })
@@ -525,11 +545,13 @@ export async function syncConnectionFinancials(
         .single();
       if (ins.error) {
         entry.status = "persistence_failed";
+        entry.availability = "persistence_failed";
         entry.persistenceOutcome = "failed";
         entry.errorCode = "snapshot_insert_failed";
         entry.errorDetail = persistErrorDetail(ins.error);
         return false;
       }
+
       entry.snapshotId = (ins.data as { id: string } | null)?.id ?? null;
       entry.persistenceOutcome = "ok";
       return true;
