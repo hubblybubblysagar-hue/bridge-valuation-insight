@@ -410,6 +410,22 @@ export function buildReportRequests(today: Date, fyStartMonth: number): SyncRepo
       accountingMethod: null,
     },
     {
+      reportType: "aged_receivable_detail",
+      label: "Aged Receivable Detail — Current",
+      path: reportPath("AgedReceivableDetail", { as_of_date: todayIso }),
+      periodStart: null,
+      periodEnd: todayIso,
+      accountingMethod: null,
+    },
+    {
+      reportType: "aged_payable_detail",
+      label: "Aged Payable Detail — Current",
+      path: reportPath("AgedPayableDetail", { as_of_date: todayIso }),
+      periodStart: null,
+      periodEnd: todayIso,
+      accountingMethod: null,
+    },
+    {
       reportType: "account_list",
       label: "Chart of Accounts",
       path: "/query?query=select * from Account maxresults 1000",
@@ -417,5 +433,14 @@ export function buildReportRequests(today: Date, fyStartMonth: number): SyncRepo
       periodEnd: null,
       accountingMethod: null,
     },
+    {
+      reportType: "account_list_detail",
+      label: "Account List report",
+      path: reportPath("AccountList", {}),
+      periodStart: null,
+      periodEnd: null,
+      accountingMethod: null,
+    },
   ];
+
 }
