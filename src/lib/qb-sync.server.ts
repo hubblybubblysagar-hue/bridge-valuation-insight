@@ -28,12 +28,34 @@ import {
 import {
   PARSER_VERSION,
   financialRowCount,
+  parseEntityQuery,
   parseReport,
   reportHeaderMeta,
   reportRowCount,
   sourceFault,
+  structuralNodeCount,
 } from "./qb-report";
+import {
+  availabilityFromLifecycle,
+  parserFor,
+  privacyTierFor,
+  sourceTitleFor,
+  type SourceAvailability,
+} from "./qb-source-registry";
 import { validateReport, type ValidationResult } from "./qb-validate";
+
+/**
+ * Intuit migrates the Reports APIs to its modernized reporting service on
+ * 2026-08-31. Setting QUICKBOOKS_REPORTS_TESTING_MIGRATION=true adds Intuit's
+ * documented temporary `testing_migration` parameter to every /reports/*
+ * request so ExitBridge can exercise the new responses before the cutover.
+ */
+function reportsApiGeneration(): "classic" | "modernized" {
+  return (process.env["QUICKBOOKS_REPORTS_TESTING_MIGRATION"] ?? "").toLowerCase() === "true"
+    ? "modernized"
+    : "classic";
+}
+
 
 
 // Intuit's public discovery document for its OAuth endpoints.
