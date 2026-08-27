@@ -481,3 +481,93 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
     </div>
   );
 }
+
+/**
+ * Financial source coverage — a truthful map of what QuickBooks has given
+ * ExitBridge. Sources that are missing are shown as gaps, never filled in or
+ * inferred. "Not synced yet" and "No activity" are information, not errors.
+ */
+function SourceCoveragePanel({ latest }: { latest: VaultSnapshotMeta[] }) {
+  const byKey = useMemo(() => {
+    const m = new Map<string, VaultSnapshotMeta>();
+    for (const s of latest) {
+      const key = s.sourceKey || s.reportType;
+      const prev = m.get(key);
+      if (!prev || (s.fetchedAt ?? "") > (prev.fetchedAt ?? "")) m.set(key, s);
+    }
+    return m;
+  }, [latest]);
+
+  const groups = useMemo(() => {
+    return COVERAGE_CATEGORY_ORDER.map((category: CoverageCategory) => ({
+      category,
+      sources: QB_SOURCE_REGISTRY.filter((s) => s.category === category && s.phase === "active"),
+    })).filter((g) => g.sources.length > 0);
+  }, []);
+
+  const covered = QB_SOURCE_REGISTRY.filter(
+    (s) => s.phase === "active" && byKey.has(s.key),
+  ).length;
+  const total = QB_SOURCE_REGISTRY.filter((s) => s.phase === "active").length;
+
+  return (
+    <SectionCard
+      title="Financial source coverage"
+      description={`${covered} of ${total} planned QuickBooks sources retrieved. Gaps are shown honestly — ExitBridge never fills in data QuickBooks did not provide.`}
+      testId="vault-coverage"
+    >
+      <div className="space-y-5">
+        {groups.map((group) => (
+          <div key={group.category}>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {COVERAGE_CATEGORY_LABELS[group.category]}
+            </h4>
+            <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+              {group.sources.map((src) => {
+                const snap = byKey.get(src.key) ?? null;
+                const availability: SourceAvailability | null = snap
+                  ? ((snap.availability as SourceAvailability | null) ??
+                    availabilityFromLifecycle(snap.status))
+                  : null;
+                const tone = !availability
+                  ? "bg-muted text-muted-foreground"
+                  : availability === "ready"
+                    ? "bg-success/10 text-success"
+                    : availability === "empty_source" ||
+                        availability === "unsupported" ||
+                        availability === "not_applicable"
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-destructive/10 text-destructive";
+                return (
+                  <li
+                    key={src.key}
+                    data-testid="vault-coverage-row"
+                    className="flex items-start justify-between gap-3 rounded-xl border border-border bg-background px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-foreground">
+                        {src.title}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {src.diligenceUse}
+                      </div>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone}`}
+                    >
+                      {availability ? AVAILABILITY_LABELS[availability] : "Not synced"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 text-[11px] text-muted-foreground">
+        Coverage reflects retrieval only. Nothing here is shared with buyers — disclosure is a
+        separate, seller-approved step.
+      </p>
+    </SectionCard>
+  );
+}
