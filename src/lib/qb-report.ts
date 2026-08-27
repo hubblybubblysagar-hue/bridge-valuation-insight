@@ -174,25 +174,23 @@ function valueEntries(
 }
 
 export function isReportPayload(payload: unknown): payload is RawReportPayload {
-  return (
-    !!payload &&
-    typeof payload === "object" &&
-    ("Rows" in payload || "Columns" in payload) &&
-    "Header" in payload
-  );
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const p = payload as Record<string, unknown>;
+  if (p["Fault"]) return false; // an API fault is never a report
+  return "Rows" in p || "Columns" in p;
 }
 
 export function parseReport(payload: unknown): ParsedReport | null {
   if (!isReportPayload(payload)) return null;
   const raw = payload as RawReportPayload;
 
-  const columnsRaw = raw.Columns?.Column ?? [];
+  const columnsRaw = columnsOf(raw.Columns);
   const allColumns: ParsedColumn[] = columnsRaw.map((c, i) => ({
-    title: c.ColTitle ?? "",
+    title: (c.ColTitle ?? "").toString(),
     colKey:
       c.MetaData?.find((m) => m.Name === "ColKey")?.Value ??
       (i === 0 ? "account" : `col_${i}`),
-    colType: c.ColType ?? "",
+    colType: (c.ColType ?? "").toString(),
   }));
   // Drop the leading label column when it has no title; values align to the rest.
   const columns =
@@ -200,13 +198,18 @@ export function parseReport(payload: unknown): ParsedReport | null {
 
   const header = raw.Header ?? {};
   const noReportData =
-    header.Option?.some((o) => o.Name === "NoReportData" && o.Value === "true") ?? false;
+    header.Option?.some(
+      (o) =>
+        o.Name === "NoReportData" &&
+        String(o.Value).toLowerCase() === "true",
+    ) ?? false;
 
   const rows: ParsedRow[] = [];
   let sequence = 0;
 
   const walk = (rawRows: RawRow[] | undefined, depth: number, ancestors: string[]): void => {
     for (const r of rawRows ?? []) {
+
       const headerBlock = r.Header ?? r.header;
       const summaryBlock = r.Summary ?? r.summary;
       const path = ancestors.join(" > ");
