@@ -25,6 +25,16 @@ import {
   SYNC_REPORT_TYPE_LABELS,
   type SyncReportType,
 } from "@/lib/qb-report-plan";
+import {
+  AVAILABILITY_LABELS,
+  COVERAGE_CATEGORY_LABELS,
+  COVERAGE_CATEGORY_ORDER,
+  QB_SOURCE_REGISTRY,
+  availabilityFromLifecycle,
+  type CoverageCategory,
+  type SourceAvailability,
+} from "@/lib/qb-source-registry";
+
 
 export const Route = createFileRoute("/seller/financial-vault/")({
   head: () => ({ meta: [{ title: "Financial Vault — ExitBridge" }] }),
