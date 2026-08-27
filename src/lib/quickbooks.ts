@@ -216,7 +216,7 @@ export async function loadVaultData(): Promise<VaultData> {
     supabase
       .from("quickbooks_report_snapshots")
       .select(
-        "id, report_type, period_start, period_end, accounting_method, report_basis, row_count, checksum, status, fetched_at, source_generated_at, sync_run_id",
+        "id, report_type, source_key, source_label, source_kind, availability, privacy_tier, period_start, period_end, accounting_method, report_basis, row_count, structural_node_count, financial_row_count, entity_count, checksum, status, fetched_at, source_generated_at, sync_run_id",
       )
       .eq("business_id", businessId)
       .order("fetched_at", { ascending: false })
@@ -236,17 +236,26 @@ export async function loadVaultData(): Promise<VaultData> {
     snapshots: (snapRes.data ?? []).map((r) => ({
       id: r.id,
       reportType: r.report_type,
+      sourceKey: r.source_key ?? r.report_type,
+      sourceLabel: r.source_label ?? null,
+      sourceKind: r.source_kind ?? null,
+      availability: r.availability ?? null,
+      privacyTier: r.privacy_tier ?? null,
       periodStart: r.period_start,
       periodEnd: r.period_end,
       accountingMethod: r.accounting_method,
       reportBasis: r.report_basis,
       rowCount: r.row_count,
+      structuralNodeCount: r.structural_node_count ?? null,
+      financialRowCount: r.financial_row_count ?? null,
+      entityCount: r.entity_count ?? null,
       checksum: r.checksum,
       status: r.status ?? "synced",
       fetchedAt: r.fetched_at,
       sourceGeneratedAt: r.source_generated_at,
       syncRunId: r.sync_run_id,
     })),
+
     runs: (runRes.data ?? []).map((r) => ({
       id: r.id,
       status: r.status,
