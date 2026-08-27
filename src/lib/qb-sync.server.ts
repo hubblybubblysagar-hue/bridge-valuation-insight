@@ -603,6 +603,8 @@ export async function syncConnectionFinancials(
     const se = err instanceof SyncError ? err : null;
     ciEntry.status = se?.code === "quickbooks_source_fault" ? "source_fault" : "api_failed";
     ciEntry.sourceOutcome = "failed";
+    ciEntry.availability = "source_fault";
+
     ciEntry.httpStatus = se?.httpStatus ?? null;
     ciEntry.intuitErrorCode = se?.intuitCode ?? null;
     ciEntry.errorCode = se?.code ?? "unknown_error";
