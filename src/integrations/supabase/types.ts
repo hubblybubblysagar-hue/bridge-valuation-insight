@@ -468,60 +468,96 @@ export type Database = {
       quickbooks_report_snapshots: {
         Row: {
           accounting_method: string | null
+          availability: string | null
           business_id: string
           checksum: string | null
           connection_id: string
           created_at: string
+          entity_count: number | null
           fetched_at: string | null
+          financial_row_count: number | null
           id: string
           normalized_payload: Json
+          parser_version: string | null
           period_end: string | null
           period_start: string | null
+          privacy_tier: string | null
           raw_payload: Json
           report_basis: string | null
           report_type: string
+          reports_api_generation: string | null
+          request_path: string | null
           row_count: number | null
           source_generated_at: string | null
+          source_key: string | null
+          source_kind: string | null
+          source_label: string | null
           status: string
+          structural_node_count: number | null
           sync_run_id: string | null
+          transaction_count: number | null
         }
         Insert: {
           accounting_method?: string | null
+          availability?: string | null
           business_id: string
           checksum?: string | null
           connection_id: string
           created_at?: string
+          entity_count?: number | null
           fetched_at?: string | null
+          financial_row_count?: number | null
           id?: string
           normalized_payload?: Json
+          parser_version?: string | null
           period_end?: string | null
           period_start?: string | null
+          privacy_tier?: string | null
           raw_payload?: Json
           report_basis?: string | null
           report_type: string
+          reports_api_generation?: string | null
+          request_path?: string | null
           row_count?: number | null
           source_generated_at?: string | null
+          source_key?: string | null
+          source_kind?: string | null
+          source_label?: string | null
           status?: string
+          structural_node_count?: number | null
           sync_run_id?: string | null
+          transaction_count?: number | null
         }
         Update: {
           accounting_method?: string | null
+          availability?: string | null
           business_id?: string
           checksum?: string | null
           connection_id?: string
           created_at?: string
+          entity_count?: number | null
           fetched_at?: string | null
+          financial_row_count?: number | null
           id?: string
           normalized_payload?: Json
+          parser_version?: string | null
           period_end?: string | null
           period_start?: string | null
+          privacy_tier?: string | null
           raw_payload?: Json
           report_basis?: string | null
           report_type?: string
+          reports_api_generation?: string | null
+          request_path?: string | null
           row_count?: number | null
           source_generated_at?: string | null
+          source_key?: string | null
+          source_kind?: string | null
+          source_label?: string | null
           status?: string
+          structural_node_count?: number | null
           sync_run_id?: string | null
+          transaction_count?: number | null
         }
         Relationships: [
           {
