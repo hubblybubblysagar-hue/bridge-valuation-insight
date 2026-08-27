@@ -11,23 +11,39 @@
 export const PARSER_VERSION = "2.0.0";
 
 // ============ Raw QBO shapes (loose; both casings tolerated) ============
+//
+// Forward-compatibility with Intuit's modernized reporting service (effective
+// 2026-08-31): unknown fields are ignored rather than rejected, `Rows` and
+// `Columns` are accepted either as the classic `{ Row: [...] }` / `{ Column:
+// [...] }` wrappers or as bare arrays, `null` and `""` are treated
+// identically, and no accounting logic keys off a row's array position.
 
 interface RawColDataEntry {
-  value?: string;
-  id?: string;
+  value?: string | null;
+  id?: string | number | null;
   name?: string;
   href?: string;
+  [key: string]: unknown;
 }
 
 interface RawRow {
   Header?: { ColData?: RawColDataEntry[] };
   header?: { ColData?: RawColDataEntry[] };
   ColData?: RawColDataEntry[];
-  Rows?: { Row?: RawRow[] };
+  Rows?: { Row?: RawRow[] } | RawRow[];
+  rows?: { Row?: RawRow[] } | RawRow[];
   Summary?: { ColData?: RawColDataEntry[] };
   summary?: { ColData?: RawColDataEntry[] };
   type?: string;
   group?: string;
+  [key: string]: unknown;
+}
+
+interface RawColumn {
+  ColTitle?: string | null;
+  ColType?: string | null;
+  MetaData?: Array<{ Name?: string; Value?: string }>;
+  [key: string]: unknown;
 }
 
 interface RawReportPayload {
@@ -39,16 +55,33 @@ interface RawReportPayload {
     EndPeriod?: string;
     Time?: string;
     Option?: Array<{ Name?: string; Value?: string }>;
+    [key: string]: unknown;
   };
-  Columns?: {
-    Column?: Array<{
-      ColTitle?: string;
-      ColType?: string;
-      MetaData?: Array<{ Name?: string; Value?: string }>;
-    }>;
-  };
-  Rows?: { Row?: RawRow[] };
+  Columns?: { Column?: RawColumn[] } | RawColumn[];
+  Rows?: { Row?: RawRow[] } | RawRow[];
+  [key: string]: unknown;
 }
+
+/** Accept `{ Row: [...] }`, a bare array, or nothing. */
+function rowsOf(v: { Row?: RawRow[] } | RawRow[] | undefined): RawRow[] {
+  if (Array.isArray(v)) return v;
+  if (v && Array.isArray(v.Row)) return v.Row;
+  return [];
+}
+
+/** Accept `{ Column: [...] }`, a bare array, or nothing. */
+function columnsOf(v: { Column?: RawColumn[] } | RawColumn[] | undefined): RawColumn[] {
+  if (Array.isArray(v)) return v;
+  if (v && Array.isArray(v.Column)) return v.Column;
+  return [];
+}
+
+/** Child rows of a row node, under either casing and either shape. */
+function childRows(r: RawRow): RawRow[] {
+  const c = rowsOf(r.Rows);
+  return c.length > 0 ? c : rowsOf(r.rows);
+}
+
 
 // ============ Parsed model ============
 
@@ -141,25 +174,23 @@ function valueEntries(
 }
 
 export function isReportPayload(payload: unknown): payload is RawReportPayload {
-  return (
-    !!payload &&
-    typeof payload === "object" &&
-    ("Rows" in payload || "Columns" in payload) &&
-    "Header" in payload
-  );
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const p = payload as Record<string, unknown>;
+  if (p["Fault"]) return false; // an API fault is never a report
+  return "Rows" in p || "Columns" in p;
 }
 
 export function parseReport(payload: unknown): ParsedReport | null {
   if (!isReportPayload(payload)) return null;
   const raw = payload as RawReportPayload;
 
-  const columnsRaw = raw.Columns?.Column ?? [];
+  const columnsRaw = columnsOf(raw.Columns);
   const allColumns: ParsedColumn[] = columnsRaw.map((c, i) => ({
-    title: c.ColTitle ?? "",
+    title: (c.ColTitle ?? "").toString(),
     colKey:
       c.MetaData?.find((m) => m.Name === "ColKey")?.Value ??
       (i === 0 ? "account" : `col_${i}`),
-    colType: c.ColType ?? "",
+    colType: (c.ColType ?? "").toString(),
   }));
   // Drop the leading label column when it has no title; values align to the rest.
   const columns =
@@ -167,13 +198,18 @@ export function parseReport(payload: unknown): ParsedReport | null {
 
   const header = raw.Header ?? {};
   const noReportData =
-    header.Option?.some((o) => o.Name === "NoReportData" && o.Value === "true") ?? false;
+    header.Option?.some(
+      (o) =>
+        o.Name === "NoReportData" &&
+        String(o.Value).toLowerCase() === "true",
+    ) ?? false;
 
   const rows: ParsedRow[] = [];
   let sequence = 0;
 
   const walk = (rawRows: RawRow[] | undefined, depth: number, ancestors: string[]): void => {
     for (const r of rawRows ?? []) {
+
       const headerBlock = r.Header ?? r.header;
       const summaryBlock = r.Summary ?? r.summary;
       const path = ancestors.join(" > ");
@@ -191,7 +227,7 @@ export function parseReport(payload: unknown): ParsedReport | null {
           label,
           values: valueEntries(headerBlock.ColData, columns),
         });
-        walk(r.Rows?.Row, depth + 1, [...ancestors, label]);
+        walk(childRows(r), depth + 1, [...ancestors, label]);
         if (summaryBlock) {
           const s = firstEntry(summaryBlock.ColData);
           rows.push({
@@ -236,11 +272,18 @@ export function parseReport(payload: unknown): ParsedReport | null {
           label,
           values: valueEntries(r.ColData, columns),
         });
+        // A data row may still nest children in the modernized service.
+        walk(childRows(r), depth + 1, ancestors);
+        continue;
       }
+
+      // Header-less container: never drop its children.
+      walk(childRows(r), depth, ancestors);
     }
   };
 
-  walk(raw.Rows?.Row, 0, []);
+
+  walk(rowsOf(raw.Rows), 0, []);
 
   return {
     reportName: header.ReportName ?? "Report",
@@ -270,10 +313,10 @@ export function countSourceNodes(payload: unknown): number {
       if (headerBlock?.ColData && headerBlock.ColData.length > 0) count += 1;
       else if (!headerBlock && r.ColData && r.ColData.length > 0) count += 1;
       if (summaryBlock?.ColData && summaryBlock.ColData.length > 0) count += 1;
-      walk(r.Rows?.Row);
+      walk(childRows(r));
     }
   };
-  walk((payload as RawReportPayload).Rows?.Row);
+  walk(rowsOf((payload as RawReportPayload).Rows));
   return count;
 }
 
@@ -459,4 +502,79 @@ export function financialRowCount(parsed: ParsedReport | null): number {
   return parsed.rows.filter(
     (r) => r.rowType !== "section" && r.values.some((v) => v.valueNumeric !== null),
   ).length;
+}
+
+/**
+ * Structural nodes are section headers and summary shells — they organize a
+ * report but are not financial evidence. Counted separately from
+ * `financialRowCount` so the Financial Vault can state evidence density
+ * honestly.
+ */
+export function structuralNodeCount(parsed: ParsedReport | null): number {
+  if (!parsed) return 0;
+  return parsed.rows.filter(
+    (r) => r.rowType === "section" || r.values.every((v) => v.valueNumeric === null),
+  ).length;
+}
+
+// ============ Entity query parsing (generic /query endpoint) ============
+
+export interface ParsedEntityQuery {
+  /** QuickBooks entity name, e.g. "Account", "Customer", "Invoice". */
+  entityName: string;
+  count: number;
+  entities: Array<Record<string, unknown>>;
+  maxResults: number | null;
+  startPosition: number | null;
+}
+
+/**
+ * Parse a QuickBooks generic-query response:
+ *   { QueryResponse: { Account: [...], startPosition: 1, maxResults: 58 } }
+ * Unknown sibling fields are ignored. An entity query is NOT a report and must
+ * never be run through `parseReport`.
+ */
+export function parseEntityQuery(payload: unknown): ParsedEntityQuery | null {
+  if (!payload || typeof payload !== "object") return null;
+  const qr = (payload as Record<string, unknown>)["QueryResponse"];
+  if (!qr || typeof qr !== "object") return null;
+  const rec = qr as Record<string, unknown>;
+  for (const [key, value] of Object.entries(rec)) {
+    if (!Array.isArray(value)) continue;
+    return {
+      entityName: key,
+      count: value.length,
+      entities: value as Array<Record<string, unknown>>,
+      maxResults: typeof rec["maxResults"] === "number" ? (rec["maxResults"] as number) : null,
+      startPosition:
+        typeof rec["startPosition"] === "number" ? (rec["startPosition"] as number) : null,
+    };
+  }
+  // A valid QueryResponse with no array member means "no records" — that is an
+  // empty source, not a parse failure.
+  return {
+    entityName: "unknown",
+    count: 0,
+    entities: [],
+    maxResults: typeof rec["maxResults"] === "number" ? (rec["maxResults"] as number) : null,
+    startPosition: null,
+  };
+}
+
+/** True when the payload is a generic-query response rather than a report. */
+export function isEntityQueryPayload(payload: unknown): boolean {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    "QueryResponse" in (payload as Record<string, unknown>)
+  );
+}
+
+/** Company metadata payload check — CompanyInfo is identity data, not a report. */
+export function isCompanyInfoPayload(payload: unknown): boolean {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    "CompanyInfo" in (payload as Record<string, unknown>)
+  );
 }

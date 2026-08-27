@@ -148,17 +148,30 @@ export async function syncFinancials(): Promise<SyncRunResult> {
 export interface VaultSnapshotMeta {
   id: string;
   reportType: string;
+  /** Registry key for this source (falls back to reportType on legacy rows). */
+  sourceKey: string;
+  sourceLabel: string | null;
+  sourceKind: string | null;
+  /** Truthful coverage state recorded at sync time. */
+  availability: string | null;
+  privacyTier: string | null;
   periodStart: string | null;
   periodEnd: string | null;
   accountingMethod: string | null;
   reportBasis: string | null;
   rowCount: number | null;
+  /** Section/summary shells: structure, not evidence. */
+  structuralNodeCount: number | null;
+  /** Rows that actually carry financial values. */
+  financialRowCount: number | null;
+  entityCount: number | null;
   checksum: string | null;
   status: string;
   fetchedAt: string | null;
   sourceGeneratedAt: string | null;
   syncRunId: string | null;
 }
+
 
 export interface VaultSyncRunMeta {
   id: string;
@@ -216,7 +229,7 @@ export async function loadVaultData(): Promise<VaultData> {
     supabase
       .from("quickbooks_report_snapshots")
       .select(
-        "id, report_type, period_start, period_end, accounting_method, report_basis, row_count, checksum, status, fetched_at, source_generated_at, sync_run_id",
+        "id, report_type, source_key, source_label, source_kind, availability, privacy_tier, period_start, period_end, accounting_method, report_basis, row_count, structural_node_count, financial_row_count, entity_count, checksum, status, fetched_at, source_generated_at, sync_run_id",
       )
       .eq("business_id", businessId)
       .order("fetched_at", { ascending: false })
@@ -236,17 +249,26 @@ export async function loadVaultData(): Promise<VaultData> {
     snapshots: (snapRes.data ?? []).map((r) => ({
       id: r.id,
       reportType: r.report_type,
+      sourceKey: r.source_key ?? r.report_type,
+      sourceLabel: r.source_label ?? null,
+      sourceKind: r.source_kind ?? null,
+      availability: r.availability ?? null,
+      privacyTier: r.privacy_tier ?? null,
       periodStart: r.period_start,
       periodEnd: r.period_end,
       accountingMethod: r.accounting_method,
       reportBasis: r.report_basis,
       rowCount: r.row_count,
+      structuralNodeCount: r.structural_node_count ?? null,
+      financialRowCount: r.financial_row_count ?? null,
+      entityCount: r.entity_count ?? null,
       checksum: r.checksum,
       status: r.status ?? "synced",
       fetchedAt: r.fetched_at,
       sourceGeneratedAt: r.source_generated_at,
       syncRunId: r.sync_run_id,
     })),
+
     runs: (runRes.data ?? []).map((r) => ({
       id: r.id,
       status: r.status,
@@ -268,7 +290,7 @@ export async function loadSnapshotById(id: string): Promise<SnapshotDetail | nul
   const { data, error } = await supabase
     .from("quickbooks_report_snapshots")
     .select(
-      "id, report_type, period_start, period_end, accounting_method, report_basis, row_count, checksum, status, fetched_at, source_generated_at, sync_run_id, raw_payload",
+      "id, report_type, source_key, source_label, source_kind, availability, privacy_tier, period_start, period_end, accounting_method, report_basis, row_count, structural_node_count, financial_row_count, entity_count, checksum, status, fetched_at, source_generated_at, sync_run_id, raw_payload",
     )
     .eq("id", id)
     .maybeSingle();
@@ -276,16 +298,25 @@ export async function loadSnapshotById(id: string): Promise<SnapshotDetail | nul
   return {
     id: data.id,
     reportType: data.report_type,
+    sourceKey: data.source_key ?? data.report_type,
+    sourceLabel: data.source_label ?? null,
+    sourceKind: data.source_kind ?? null,
+    availability: data.availability ?? null,
+    privacyTier: data.privacy_tier ?? null,
     periodStart: data.period_start,
     periodEnd: data.period_end,
     accountingMethod: data.accounting_method,
     reportBasis: data.report_basis,
     rowCount: data.row_count,
+    structuralNodeCount: data.structural_node_count ?? null,
+    financialRowCount: data.financial_row_count ?? null,
+    entityCount: data.entity_count ?? null,
     checksum: data.checksum,
     status: data.status ?? "synced",
     fetchedAt: data.fetched_at,
     sourceGeneratedAt: data.source_generated_at,
     syncRunId: data.sync_run_id,
+
     rawPayload: data.raw_payload,
   };
 }

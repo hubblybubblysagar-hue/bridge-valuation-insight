@@ -12,8 +12,11 @@ export const SYNC_REPORT_TYPES = [
   "cash_flow",
   "trial_balance",
   "aged_receivables",
+  "aged_receivable_detail",
   "aged_payables",
+  "aged_payable_detail",
   "account_list",
+  "account_list_detail",
 ] as const;
 
 export type SyncReportType = (typeof SYNC_REPORT_TYPES)[number];
@@ -25,9 +28,13 @@ export const SYNC_REPORT_TYPE_LABELS: Record<SyncReportType, string> = {
   cash_flow: "Statement of Cash Flows",
   trial_balance: "Trial Balance",
   aged_receivables: "Aged Receivables",
+  aged_receivable_detail: "Aged Receivable Detail",
   aged_payables: "Aged Payables",
+  aged_payable_detail: "Aged Payable Detail",
   account_list: "Chart of Accounts",
+  account_list_detail: "Account List report",
 };
+
 
 export interface SyncReportRequest {
   reportType: SyncReportType;
@@ -58,17 +65,20 @@ export type SnapshotLifecycle =
   | "reconciliation_warning"
   | "synced"; // legacy value from pre-v2 syncs
 
-/**
- * What a request retrieves. Company metadata is verified identity data — it is
- * never parsed as a financial report and never counted as a failed report.
- */
-export type SourceKind = "company_metadata" | "accounting_entity" | "financial_report";
+// Source kind / privacy / availability are defined once, in the source
+// registry. Re-exported here so existing importers keep working.
+export {
+  sourceKindFor,
+  privacyTierFor,
+  availabilityFromLifecycle,
+} from "./qb-source-registry";
+export type {
+  SourceKind,
+  PrivacyTier,
+  SourceAvailability,
+} from "./qb-source-registry";
 
-export function sourceKindFor(reportType: string): SourceKind {
-  if (reportType === "company_info") return "company_metadata";
-  if (reportType === "account_list") return "accounting_entity";
-  return "financial_report";
-}
+import type { SourceAvailability, SourceKind } from "./qb-source-registry";
 
 export type StageOutcome = "ok" | "failed" | "skipped" | "empty" | "not_applicable";
 
@@ -80,7 +90,9 @@ export interface SyncResultItem {
   periodStart: string | null;
   periodEnd: string | null;
   status: SnapshotLifecycle;
-  /** company_metadata / accounting_entity / financial_report. */
+  /** Truthful coverage state: "not present" is information, not failure. */
+  availability?: SourceAvailability;
+  /** company_metadata / financial_report / accounting_entity / transaction_entity. */
   kind?: SourceKind;
   /** Per-stage outcomes so a source failure is never reported as a parse failure. */
   sourceOutcome?: StageOutcome;
@@ -102,8 +114,17 @@ export interface SyncResultItem {
   rowCount?: number | null;
   /** Rows that actually carry financial values. */
   financialRowCount?: number | null;
+  /** Section/summary shells that organize but do not evidence. */
+  structuralNodeCount?: number | null;
+  /** Accounting entity records returned by a generic query. */
+  entityCount?: number | null;
+  /** Transaction-level records returned by a detail source. */
+  transactionCount?: number | null;
   checksum?: string;
+  /** "classic" or "modernized" — which Reports service produced the payload. */
+  reportsApiGeneration?: string | null;
 }
+
 
 /**
  * Deterministic narrower-period retry for a period-bounded report whose source
@@ -389,6 +410,22 @@ export function buildReportRequests(today: Date, fyStartMonth: number): SyncRepo
       accountingMethod: null,
     },
     {
+      reportType: "aged_receivable_detail",
+      label: "Aged Receivable Detail — Current",
+      path: reportPath("AgedReceivableDetail", { as_of_date: todayIso }),
+      periodStart: null,
+      periodEnd: todayIso,
+      accountingMethod: null,
+    },
+    {
+      reportType: "aged_payable_detail",
+      label: "Aged Payable Detail — Current",
+      path: reportPath("AgedPayableDetail", { as_of_date: todayIso }),
+      periodStart: null,
+      periodEnd: todayIso,
+      accountingMethod: null,
+    },
+    {
       reportType: "account_list",
       label: "Chart of Accounts",
       path: "/query?query=select * from Account maxresults 1000",
@@ -396,5 +433,14 @@ export function buildReportRequests(today: Date, fyStartMonth: number): SyncRepo
       periodEnd: null,
       accountingMethod: null,
     },
+    {
+      reportType: "account_list_detail",
+      label: "Account List report",
+      path: reportPath("AccountList", {}),
+      periodStart: null,
+      periodEnd: null,
+      accountingMethod: null,
+    },
   ];
+
 }

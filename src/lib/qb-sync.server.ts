@@ -28,12 +28,34 @@ import {
 import {
   PARSER_VERSION,
   financialRowCount,
+  parseEntityQuery,
   parseReport,
   reportHeaderMeta,
   reportRowCount,
   sourceFault,
+  structuralNodeCount,
 } from "./qb-report";
+import {
+  availabilityFromLifecycle,
+  parserFor,
+  privacyTierFor,
+  sourceTitleFor,
+  type SourceAvailability,
+} from "./qb-source-registry";
 import { validateReport, type ValidationResult } from "./qb-validate";
+
+/**
+ * Intuit migrates the Reports APIs to its modernized reporting service on
+ * 2026-08-31. Setting QUICKBOOKS_REPORTS_TESTING_MIGRATION=true adds Intuit's
+ * documented temporary `testing_migration` parameter to every /reports/*
+ * request so ExitBridge can exercise the new responses before the cutover.
+ */
+function reportsApiGeneration(): "classic" | "modernized" {
+  return (process.env["QUICKBOOKS_REPORTS_TESTING_MIGRATION"] ?? "").toLowerCase() === "true"
+    ? "modernized"
+    : "classic";
+}
+
 
 
 // Intuit's public discovery document for its OAuth endpoints.
@@ -248,6 +270,10 @@ async function quickbooksGet(
   const base = `${qboBaseUrl(ctx.environment)}/v3/company/${ctx.realmId}`;
   const url = new URL(`${base}${requestPath.startsWith("/") ? requestPath : `/${requestPath}`}`);
   url.searchParams.set("minorversion", process.env["QUICKBOOKS_MINOR_VERSION"] ?? "75");
+  if (reportsApiGeneration() === "modernized" && requestPath.includes("/reports/")) {
+    url.searchParams.set("testing_migration", "true");
+  }
+
 
   let lastError: SyncError = new SyncError("network_error", "QuickBooks request failed");
 
@@ -451,6 +477,10 @@ export async function syncConnectionFinancials(
 
   let success = 0;
   let failed = 0;
+  // Sources this QuickBooks company does not expose: recorded truthfully as
+  // coverage gaps, never as failures.
+  let unsupported = 0;
+
   const errorCodes: string[] = [];
   let discoveredHistoryEarliest: string | null = null;
   let syncRunId: string | null = null;
@@ -468,6 +498,9 @@ export async function syncConnectionFinancials(
       const checksum = await sha256Hex(rawJson);
       entry.checksum = checksum;
       const meta = reportHeaderMeta(payload);
+      const entities = parserFor(req.reportType) === "entity" ? parseEntityQuery(payload) : null;
+      const availability: SourceAvailability =
+        entry.availability ?? availabilityFromLifecycle(entry.status);
       const ins = await writer
         .from("quickbooks_report_snapshots")
         .insert({
@@ -475,6 +508,12 @@ export async function syncConnectionFinancials(
           business_id: connection.business_id,
           sync_run_id: syncRunId,
           report_type: req.reportType,
+          source_key: req.reportType,
+          source_label: req.label ?? sourceTitleFor(req.reportType),
+          request_path: req.path,
+          source_kind: entry.kind,
+          availability,
+          privacy_tier: privacyTierFor(req.reportType),
           period_start: req.periodStart,
           period_end: req.periodEnd,
           accounting_method: req.accountingMethod,
@@ -483,15 +522,26 @@ export async function syncConnectionFinancials(
             parser_version: PARSER_VERSION,
             parsed_at: new Date().toISOString(),
             kind: entry.kind,
+            reports_api_generation: reportsApiGeneration(),
             meta,
             columns: parsed?.columns ?? [],
             rows: parsed?.rows ?? [],
+            entity_name: entities?.entityName ?? null,
+            entities: entities?.entities ?? [],
+            structural_node_count: entry.structuralNodeCount ?? 0,
             financial_row_count: entry.financialRowCount ?? 0,
+            entity_count: entry.entityCount ?? 0,
             validation,
           },
           report_basis: meta.report_basis ?? req.accountingMethod,
           source_generated_at: meta.source_time,
           row_count: entry.rowCount ?? 0,
+          structural_node_count: entry.structuralNodeCount ?? 0,
+          financial_row_count: entry.financialRowCount ?? 0,
+          entity_count: entry.entityCount ?? 0,
+          transaction_count: entry.transactionCount ?? null,
+          parser_version: PARSER_VERSION,
+          reports_api_generation: reportsApiGeneration(),
           checksum,
           status: entry.status,
         })
@@ -499,22 +549,26 @@ export async function syncConnectionFinancials(
         .single();
       if (ins.error) {
         entry.status = "persistence_failed";
+        entry.availability = "persistence_failed";
         entry.persistenceOutcome = "failed";
         entry.errorCode = "snapshot_insert_failed";
         entry.errorDetail = persistErrorDetail(ins.error);
         return false;
       }
+
       entry.snapshotId = (ins.data as { id: string } | null)?.id ?? null;
       entry.persistenceOutcome = "ok";
       return true;
     } catch (err) {
       entry.status = "persistence_failed";
+      entry.availability = "persistence_failed";
       entry.persistenceOutcome = "failed";
       entry.errorCode = "snapshot_insert_failed";
       entry.errorDetail = err instanceof Error ? err.message.slice(0, 200) : "unknown";
       return false;
     }
   };
+
 
   // 2. CompanyInfo — verified company metadata AND the fiscal-year input.
   //    It is metadata, never a financial report: it is not parsed as one and
@@ -547,10 +601,14 @@ export async function syncConnectionFinancials(
     fiscalYearStartMonth = Number(companyInfo["FiscalYearStartMonth"] ?? 1) || 1;
     ciEntry.rowCount = Object.keys(companyInfo).length;
     ciEntry.financialRowCount = null;
+    ciEntry.availability = "ready";
+
   } catch (err) {
     const se = err instanceof SyncError ? err : null;
     ciEntry.status = se?.code === "quickbooks_source_fault" ? "source_fault" : "api_failed";
     ciEntry.sourceOutcome = "failed";
+    ciEntry.availability = "source_fault";
+
     ciEntry.httpStatus = se?.httpStatus ?? null;
     ciEntry.intuitErrorCode = se?.intuitCode ?? null;
     ciEntry.errorCode = se?.code ?? "unknown_error";
@@ -641,34 +699,68 @@ export async function syncConnectionFinancials(
     } catch (err) {
       const se = err instanceof SyncError ? err : null;
       const isFault = se?.code === "quickbooks_source_fault";
+      const http = se?.httpStatus ?? null;
       entry.status = isFault ? "source_fault" : "api_failed";
+      // "Not present" is information. A report this QuickBooks edition does not
+      // expose is `unsupported`; a scope/permission block is `permission_limited`.
+      entry.availability =
+        http === 400 || http === 404
+          ? "unsupported"
+          : http === 401 || http === 403
+            ? "permission_limited"
+            : "source_fault";
       entry.sourceOutcome = "failed";
       entry.parseOutcome = "skipped";
       entry.validationOutcome = "skipped";
       entry.persistenceOutcome = "skipped";
-      entry.httpStatus = se?.httpStatus ?? null;
+      entry.httpStatus = http;
       entry.intuitErrorCode = se?.intuitCode ?? null;
       entry.intuitFaultType = isFault ? "SystemFault" : null;
       entry.errorCode = se?.code ?? "network_error";
       entry.errorDetail = se?.message.slice(0, 200) ?? null;
-      failed += 1;
-      errorCodes.push(entry.errorCode);
+      // Unsupported/not-applicable sources are recorded, not counted as failures.
+      if (entry.availability === "unsupported") unsupported += 1;
+      else {
+        failed += 1;
+        errorCodes.push(entry.errorCode);
+      }
       return entry;
     }
 
-    // Parse + Validate
-    const parsed = parseReport(apiResult.payload);
-    entry.rowCount = reportRowCount(apiResult.payload);
-    entry.financialRowCount = financialRowCount(parsed);
-    const validation = parsed ? validateReport(req.reportType, parsed) : null;
-    entry.status = deriveLifecycle(parsed, validation, apiResult.payload);
-    entry.parseOutcome =
-      entry.status === "parse_failed" ? "failed" : entry.status === "empty_source" ? "empty" : "ok";
-    entry.validationOutcome = !validation || validation.checks.length === 0
-      ? "not_applicable"
-      : validation.overall === "fail"
-        ? "failed"
-        : "ok";
+    entry.reportsApiGeneration = reportsApiGeneration();
+
+    // Parse + Validate. Entity queries are NOT reports and are never run
+    // through the report parser.
+    let parsed: ReturnType<typeof parseReport> = null;
+    let validation: ValidationResult | null = null;
+
+    if (parserFor(req.reportType) === "entity") {
+      const entities = parseEntityQuery(apiResult.payload);
+      entry.entityCount = entities?.count ?? 0;
+      entry.rowCount = entities?.count ?? 0;
+      entry.financialRowCount = null;
+      entry.structuralNodeCount = 0;
+      entry.parseOutcome = entities ? (entities.count > 0 ? "ok" : "empty") : "failed";
+      entry.validationOutcome = "not_applicable";
+      entry.status = !entities ? "parse_failed" : entities.count === 0 ? "empty_source" : "ready";
+      entry.availability = availabilityFromLifecycle(entry.status);
+    } else {
+      parsed = parseReport(apiResult.payload);
+      entry.rowCount = reportRowCount(apiResult.payload);
+      entry.financialRowCount = financialRowCount(parsed);
+      entry.structuralNodeCount = structuralNodeCount(parsed);
+      validation = parsed ? validateReport(req.reportType, parsed) : null;
+      entry.status = deriveLifecycle(parsed, validation, apiResult.payload);
+      entry.parseOutcome =
+        entry.status === "parse_failed" ? "failed" : entry.status === "empty_source" ? "empty" : "ok";
+      entry.validationOutcome = !validation || validation.checks.length === 0
+        ? "not_applicable"
+        : validation.overall === "fail"
+          ? "failed"
+          : "ok";
+      entry.availability = availabilityFromLifecycle(entry.status);
+    }
+
 
     // Preserve (byte-immutable) + Persist. Prior valid snapshots are never
     // touched — every sync appends a new immutable version.
@@ -706,6 +798,8 @@ export async function syncConnectionFinancials(
 
   // 6. Finalize the run with its full per-request manifest.
   const runStatus = failed === 0 ? "completed" : success > 0 ? "partial" : "failed";
+  void unsupported;
+
   await writer
     .from("quickbooks_sync_runs")
     .update({
