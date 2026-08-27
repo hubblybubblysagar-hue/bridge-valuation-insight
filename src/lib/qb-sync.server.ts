@@ -695,34 +695,68 @@ export async function syncConnectionFinancials(
     } catch (err) {
       const se = err instanceof SyncError ? err : null;
       const isFault = se?.code === "quickbooks_source_fault";
+      const http = se?.httpStatus ?? null;
       entry.status = isFault ? "source_fault" : "api_failed";
+      // "Not present" is information. A report this QuickBooks edition does not
+      // expose is `unsupported`; a scope/permission block is `permission_limited`.
+      entry.availability =
+        http === 400 || http === 404
+          ? "unsupported"
+          : http === 401 || http === 403
+            ? "permission_limited"
+            : "source_fault";
       entry.sourceOutcome = "failed";
       entry.parseOutcome = "skipped";
       entry.validationOutcome = "skipped";
       entry.persistenceOutcome = "skipped";
-      entry.httpStatus = se?.httpStatus ?? null;
+      entry.httpStatus = http;
       entry.intuitErrorCode = se?.intuitCode ?? null;
       entry.intuitFaultType = isFault ? "SystemFault" : null;
       entry.errorCode = se?.code ?? "network_error";
       entry.errorDetail = se?.message.slice(0, 200) ?? null;
-      failed += 1;
-      errorCodes.push(entry.errorCode);
+      // Unsupported/not-applicable sources are recorded, not counted as failures.
+      if (entry.availability === "unsupported") unsupported += 1;
+      else {
+        failed += 1;
+        errorCodes.push(entry.errorCode);
+      }
       return entry;
     }
 
-    // Parse + Validate
-    const parsed = parseReport(apiResult.payload);
-    entry.rowCount = reportRowCount(apiResult.payload);
-    entry.financialRowCount = financialRowCount(parsed);
-    const validation = parsed ? validateReport(req.reportType, parsed) : null;
-    entry.status = deriveLifecycle(parsed, validation, apiResult.payload);
-    entry.parseOutcome =
-      entry.status === "parse_failed" ? "failed" : entry.status === "empty_source" ? "empty" : "ok";
-    entry.validationOutcome = !validation || validation.checks.length === 0
-      ? "not_applicable"
-      : validation.overall === "fail"
-        ? "failed"
-        : "ok";
+    entry.reportsApiGeneration = reportsApiGeneration();
+
+    // Parse + Validate. Entity queries are NOT reports and are never run
+    // through the report parser.
+    let parsed: ReturnType<typeof parseReport> = null;
+    let validation: ValidationResult | null = null;
+
+    if (parserFor(req.reportType) === "entity") {
+      const entities = parseEntityQuery(apiResult.payload);
+      entry.entityCount = entities?.count ?? 0;
+      entry.rowCount = entities?.count ?? 0;
+      entry.financialRowCount = null;
+      entry.structuralNodeCount = 0;
+      entry.parseOutcome = entities ? (entities.count > 0 ? "ok" : "empty") : "failed";
+      entry.validationOutcome = "not_applicable";
+      entry.status = !entities ? "parse_failed" : entities.count === 0 ? "empty_source" : "ready";
+      entry.availability = availabilityFromLifecycle(entry.status);
+    } else {
+      parsed = parseReport(apiResult.payload);
+      entry.rowCount = reportRowCount(apiResult.payload);
+      entry.financialRowCount = financialRowCount(parsed);
+      entry.structuralNodeCount = structuralNodeCount(parsed);
+      validation = parsed ? validateReport(req.reportType, parsed) : null;
+      entry.status = deriveLifecycle(parsed, validation, apiResult.payload);
+      entry.parseOutcome =
+        entry.status === "parse_failed" ? "failed" : entry.status === "empty_source" ? "empty" : "ok";
+      entry.validationOutcome = !validation || validation.checks.length === 0
+        ? "not_applicable"
+        : validation.overall === "fail"
+          ? "failed"
+          : "ok";
+      entry.availability = availabilityFromLifecycle(entry.status);
+    }
+
 
     // Preserve (byte-immutable) + Persist. Prior valid snapshots are never
     // touched — every sync appends a new immutable version.
