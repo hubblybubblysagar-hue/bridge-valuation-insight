@@ -227,7 +227,7 @@ export function parseReport(payload: unknown): ParsedReport | null {
           label,
           values: valueEntries(headerBlock.ColData, columns),
         });
-        walk(r.Rows?.Row, depth + 1, [...ancestors, label]);
+        walk(childRows(r), depth + 1, [...ancestors, label]);
         if (summaryBlock) {
           const s = firstEntry(summaryBlock.ColData);
           rows.push({
@@ -276,7 +276,7 @@ export function parseReport(payload: unknown): ParsedReport | null {
     }
   };
 
-  walk(raw.Rows?.Row, 0, []);
+  walk(rowsOf(raw.Rows), 0, []);
 
   return {
     reportName: header.ReportName ?? "Report",
@@ -306,10 +306,10 @@ export function countSourceNodes(payload: unknown): number {
       if (headerBlock?.ColData && headerBlock.ColData.length > 0) count += 1;
       else if (!headerBlock && r.ColData && r.ColData.length > 0) count += 1;
       if (summaryBlock?.ColData && summaryBlock.ColData.length > 0) count += 1;
-      walk(r.Rows?.Row);
+      walk(childRows(r));
     }
   };
-  walk((payload as RawReportPayload).Rows?.Row);
+  walk(rowsOf((payload as RawReportPayload).Rows));
   return count;
 }
 
